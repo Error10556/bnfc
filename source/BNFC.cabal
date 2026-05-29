@@ -247,6 +247,11 @@ library
     BNFC.Backend.CPP.STL.STLUtils
     BNFC.Backend.CPP.STL.CFtoCVisitSkelSTL
 
+    -- C++ with variants backend
+    BNFC.Backend.CPPVar
+    BNFC.Backend.CPPVar.AbsynGen
+    BNFC.Backend.CPPVar.CPPUtil
+
     -- Java backend
     BNFC.Backend.Java
     BNFC.Backend.Java.CFtoAntlr4Lexer
