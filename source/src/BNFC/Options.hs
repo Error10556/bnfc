@@ -60,7 +60,7 @@ data Mode
   deriving (Eq,Show,Ord)
 
 -- | Target languages
-data Target = TargetC | TargetCpp | TargetCppNoStl
+data Target = TargetC | TargetCpp | TargetCppNoStl | TargetCppVariants
             | TargetHaskell | TargetHaskellGadt | TargetLatex
             | TargetJava | TargetOCaml | TargetPygments
             | TargetTreeSitter
@@ -75,6 +75,7 @@ instance Show Target where
   show TargetC            = "C"
   show TargetCpp          = "C++"
   show TargetCppNoStl     = "C++ (without STL)"
+  show TargetCppVariants  = "C++ (with std::variant)"
   show TargetHaskell      = "Haskell"
   show TargetHaskellGadt  = "Haskell (with GADT)"
   show TargetLatex        = "Latex"
@@ -288,6 +289,7 @@ printTargetOption = ("--" ++) . \case
   TargetC           -> "c"
   TargetCpp         -> "cpp"
   TargetCppNoStl    -> "cpp-nostl"
+  TargetCppVariants -> "cpp-var"
   TargetHaskell     -> "haskell"
   TargetHaskellGadt -> "haskell-gadt"
   TargetLatex       -> "latex"
@@ -342,6 +344,8 @@ targetOptions =
     "Output C++ code for use with FLex and Bison"
   , Option "" ["cpp-nostl"]     (NoArg (\o -> o {target = TargetCppNoStl}))
     "Output C++ code (without STL) for use with FLex and Bison"
+  , Option "" ["cpp-var"]       (NoArg (\o -> o {target = TargetCppVariants}))
+    "Output C++17 code (heavily using std::variant) for use with FLex and Bison"
   , Option "" ["ocaml"]         (NoArg (\o -> o {target = TargetOCaml}))
     "Output OCaml code for use with ocamllex and ocamlyacc"
   , Option "" ["ocaml-menhir"]  (NoArg (\ o -> o{ target = TargetOCaml, ocamlParser = Menhir }))
@@ -370,7 +374,7 @@ specificOptions =
   , ( Option ['p'] ["name-space"]
       (ReqArg (\n o -> o {inPackage = Just n}) "NAMESPACE")
           "Prepend NAMESPACE to the package/module name"
-    , [TargetCpp, TargetJava] ++ haskellTargets)
+    , [TargetCpp, TargetCppVariants, TargetJava] ++ haskellTargets)
   -- Java backend:
   , ( Option [] ["jlex"  ] (NoArg (\o -> o {javaLexerParser = JLexCup}))
           "Lex with JLex, parse with CUP (default)"
@@ -495,7 +499,7 @@ help = unlines $ title ++
     , usageInfo "TARGET languages" targetOptions
     ] ++ map targetUsage helpTargets
   where
-  helpTargets = [ TargetHaskell, TargetJava, TargetC, TargetCpp, TargetTreeSitter ]
+  helpTargets = [ TargetHaskell, TargetJava, TargetC, TargetCpp, TargetCppVariants, TargetTreeSitter ]
   targetUsage t = usageInfo
     (printf "Special options for the %s backend" (show t))
     (specificOptions' t)
@@ -566,6 +570,7 @@ instance Maintained Target where
     TargetC           -> True
     TargetCpp         -> True
     TargetCppNoStl    -> True
+    TargetCppVariants -> True
     TargetHaskell     -> True
     TargetHaskellGadt -> True
     TargetLatex       -> True
@@ -685,6 +690,8 @@ translateOldOptions = mapM $ \ o -> do
     , ("-cpp"          , "--cpp")
     , ("-cpp_stl"      , "--cpp")
     , ("-cpp_no_stl"   , "--cpp-nostl")
+    , ("-cpp-var"      , "--cpp-var")
+    , ("-cpp_var"      , "--cpp-var")
     , ("-csharp"       , "--csharp")
     , ("-ocaml"        , "--ocaml")
     , ("-haskell"      , "--haskell")

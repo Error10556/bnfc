@@ -78,6 +78,7 @@ maketarget = \case
     TargetC            -> makeC
     TargetCpp          -> makeCppStl
     TargetCppNoStl     -> makeCppNoStl
+    TargetCppVariants  -> error "TODO --cpp-var"
     TargetHaskell      -> makeHaskell
     TargetHaskellGadt  -> makeHaskellGadt
     TargetLatex        -> makeLatex
