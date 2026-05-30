@@ -6,8 +6,10 @@ module BNFC.Backend.CPPVar.AbsynGen
 --import BNFC.Utils
 import BNFC.CF
 import BNFC.Options
-import Text.PrettyPrint (Doc, text, empty, ($+$))
+import Text.PrettyPrint (Doc, text, ($+$))
 import BNFC.Backend.CPPVar.CPPUtil
+import qualified Data.Map
+import Data.List (intercalate)
 
 absynHppFilename :: String
 absynHppFilename = "Absyn.hpp"
@@ -16,21 +18,25 @@ absynCppFilename :: String
 absynCppFilename = "Absyn.cpp"
 
 -- | returns (Absyn.hpp, Absyn.cpp)
-makeAbsyn :: SharedOptions -> CF -> (Doc, Doc)
-makeAbsyn opts cf = (hpp, cpp)
+makeAbsyn :: SharedOptions -> CF -> Data.Map.Map Cat [Rule] -> (Doc, Doc)
+makeAbsyn opts cf groupedRules = (hpp, cpp)
     where
         maybeNamespace = maybe id wrapNamespace (inPackage opts)
-        hpp = headerHead $++$ maybeNamespace (headerTokens cf)
+        (hppTokenStructs, hppTokenRefl) = headerTokens cf
+        (hppCatDefs, hppCatRefl) = headerCats groupedRules
+        hppMain = hppTokenStructs $++$ hppCatDefs
+        hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppCatRefl
+        hpp = headerHead $++$ maybeNamespace
+            (hppMain $++$ wrapNamespace "reflection" hppRefl)
         cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
-            $++$ maybeNamespace
-            (clonePtrImpl $++$ implTokens cf)
+            $++$ maybeNamespace (clonePtrImpl $++$ implTokens cf)
 
 headerHead :: Doc
 headerHead = text """
 #pragma once
 #include <memory>
 #include <string>
-#include <vector>
+#include <deque>
 #include <variant>
 """
 
@@ -131,10 +137,9 @@ tokenStructImpl name storageType =
         , "}"
         ]
 
-headerTokens :: CF -> Doc
-headerTokens cf = foldr ($++$) empty structs
-    $++$ wrapNamespace "reflection"
-    (reflectionTemplates $++$ foldr ($+$) empty reflections)
+-- | -> (structs, reflection)
+headerTokens :: CF -> (Doc, Doc)
+headerTokens cf = (vcatSpaced structs, vcatSpaced reflections)
     where
         litTokens = map makeLitToken (literals cf)
         userTokens = map (makeUserToken . wpThing) $
@@ -151,7 +156,7 @@ headerTokens cf = foldr ($++$) empty structs
         (structs, reflections) = unzip (litTokens ++ userTokens)
 
 implTokens :: CF -> Doc
-implTokens cf = foldr ($++$) empty $ litTokens ++ userTokens
+implTokens cf = vcatSpaced $ litTokens ++ userTokens
     where
         litTokens = map makeLitToken (literals cf)
         userTokens = map (makeUserToken . wpThing) $
@@ -172,3 +177,25 @@ static std::unique_ptr<T> ClonePtr(const std::unique_ptr<T>& p) {
     return std::make_unique<T>(*p);
 }
 """
+
+-- | -> (definitions, reflections)
+headerCats :: Data.Map.Map Cat [Rule] -> (Doc, Doc)
+headerCats groupedRules = (vcatSpaced defs, vcatSpaced refls)
+    where
+        (defs, refls) = unzip . map todocument . Data.Map.toList
+            . mergeCoercCats $ groupedRules
+        todocument (cat, rules) =
+            let name = catNameNoCoerc cat
+            in  case cat of
+                ListCat elemCat ->
+                    ( text $ "using " ++ name ++ " = std::deque<"
+                        ++ catNameNoCoerc elemCat ++ ">;"
+                    , rawCoercionSpec name 0 $+$ rawNodeNameSpec name
+                    )
+                _ ->
+                    let ruleNames = filter (/= "_") $ map funName rules
+                    in (linesToText $ map (("class "++) . (++";")) ruleNames
+                        ++ [ "using " ++ name ++ " = std::variant<"
+                           ++ intercalate ", " ruleNames ++ ">;"]
+                       , rawNodeNameSpec name
+                       )

@@ -10,11 +10,15 @@ module BNFC.Backend.CPPVar (makeCppVar) where
 import BNFC.CF
 import BNFC.Options
 import BNFC.Backend.Base
+import qualified BNFC.Backend.CPPVar.CPPUtil as CPPUtil
 import BNFC.Backend.CPPVar.AbsynGen
 import qualified BNFC.Backend.C as BackendC (comment)
 
 makeCppVar :: SharedOptions -> CF -> MkFiles ()
 makeCppVar opts cf = do
-    let (absynHpp, absynCpp) = makeAbsyn opts cf
+    let groupedRules = case CPPUtil.groupNormalizeRules cf of
+            Left msg -> error msg
+            Right val -> val
+        (absynHpp, absynCpp) = makeAbsyn opts cf groupedRules
     mkfile absynHppFilename BackendC.comment absynHpp
     mkfile absynCppFilename BackendC.comment absynCpp
