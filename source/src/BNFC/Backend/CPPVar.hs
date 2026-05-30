@@ -3,7 +3,6 @@
     (C) (2026) Author: Timur Usmanov <t.usmanov@innopolis.university>
 -}
 
-{-# LANGUAGE MultilineStrings #-}
 module BNFC.Backend.CPPVar (makeCppVar) where
 
 --import BNFC.Utils
@@ -16,7 +15,7 @@ import qualified BNFC.Backend.C as BackendC (comment)
 
 makeCppVar :: SharedOptions -> CF -> MkFiles ()
 makeCppVar opts cf = do
-    let groupedRules = case CPPUtil.groupNormalizeRules cf of
+    let groupedRules = case CPPUtil.groupRules cf of
             Left msg -> error msg
             Right val -> val
         (absynHpp, absynCpp) = makeAbsyn opts cf groupedRules

@@ -1,15 +1,14 @@
-{-# LANGUAGE MultilineStrings #-}
-
 module BNFC.Backend.CPPVar.AbsynGen
     (makeAbsyn, absynHppFilename, absynCppFilename) where
 
 --import BNFC.Utils
 import BNFC.CF
 import BNFC.Options
-import Text.PrettyPrint (Doc, text, ($+$))
+import Text.PrettyPrint (Doc, text, ($+$), empty, nest)
 import BNFC.Backend.CPPVar.CPPUtil
 import qualified Data.Map
-import Data.List (intercalate)
+import qualified Data.Set
+import Data.List (intercalate, sort)
 
 absynHppFilename :: String
 absynHppFilename = "Absyn.hpp"
@@ -24,31 +23,33 @@ makeAbsyn opts cf groupedRules = (hpp, cpp)
         maybeNamespace = maybe id wrapNamespace (inPackage opts)
         (hppTokenStructs, hppTokenRefl) = headerTokens cf
         (hppCatDefs, hppCatRefl) = headerCats groupedRules
-        hppMain = hppTokenStructs $++$ hppCatDefs
+        (hppRules, hppRuleRefl, cppRules) = rules cf
+        hppMain = hppTokenStructs $++$ hppCatDefs $++$ hppRules
         hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppCatRefl
+            $++$ hppRuleRefl
         hpp = headerHead $++$ maybeNamespace
             (hppMain $++$ wrapNamespace "reflection" hppRefl)
         cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
-            $++$ maybeNamespace (clonePtrImpl $++$ implTokens cf)
+            $++$ maybeNamespace (clonePtrImpl $++$ implTokens cf $++$ cppRules)
 
 headerHead :: Doc
-headerHead = text """
-#pragma once
-#include <memory>
-#include <string>
-#include <deque>
-#include <variant>
-"""
+headerHead = linesToText
+    [ "#pragma once"
+    , "#include <memory>"
+    , "#include <string>"
+    , "#include <deque>"
+    , "#include <variant>"
+    ]
 
 reflectionTemplates :: Doc
-reflectionTemplates = text """
-template <class T> struct CoercionLevel_t {};
-template<class T> constexpr int CoercionLevel = CoercionLevel_t<T>::value;
-
-template <class T> struct SyntaxNodeName_t {};
-template<class T>
-constexpr const char* SyntaxNodeName = SyntaxNodeName_t<T>::value;
-"""
+reflectionTemplates = linesToText
+    [ "template <class T> struct CoercionLevel_t {};"
+    , "template<class T> constexpr int CoercionLevel = CoercionLevel_t<T>::value;"
+    , ""
+    , "template <class T> struct SyntaxNodeName_t {};"
+    , "template<class T>"
+    , "constexpr const char* SyntaxNodeName = SyntaxNodeName_t<T>::value;"
+    ]
 
 rawCoercionSpec :: String -> Integer -> Doc
 rawCoercionSpec name coercion = linesToText
@@ -151,7 +152,7 @@ headerTokens cf = (vcatSpaced structs, vcatSpaced reflections)
         makeLitToken "Double" = tokenStructHeader "Double" "double"
         makeLitToken s = -- Ident
             tokenStructWithRefConstructorsHeader s "std::string"
-        makeUserToken s = 
+        makeUserToken s =
             tokenStructWithRefConstructorsHeader s "std::string"
         (structs, reflections) = unzip (litTokens ++ userTokens)
 
@@ -170,13 +171,13 @@ implTokens cf = vcatSpaced $ litTokens ++ userTokens
         makeUserToken s = tokenStructWithRefConstructorsImpl s "std::string"
 
 clonePtrImpl :: Doc
-clonePtrImpl = text """
-template <class T>
-static std::unique_ptr<T> ClonePtr(const std::unique_ptr<T>& p) {
-    if (!p) return {};
-    return std::make_unique<T>(*p);
-}
-"""
+clonePtrImpl = linesToText
+    [ "template <class T>"
+    , "static std::unique_ptr<T> ClonePtr(const std::unique_ptr<T>& p) {"
+    , "    if (!p) return {};"
+    , "    return std::make_unique<T>(*p);"
+    , "}"
+    ]
 
 -- | -> (definitions, reflections)
 headerCats :: Data.Map.Map Cat [Rule] -> (Doc, Doc)
@@ -199,3 +200,122 @@ headerCats groupedRules = (vcatSpaced defs, vcatSpaced refls)
                            ++ intercalate ", " ruleNames ++ ">;"]
                        , rawNodeNameSpec name
                        )
+
+-- | -> (header, refl, impl)
+rules :: CF -> (Doc, Doc, Doc)
+rules cf = (vcatSpaced headers, vcatSpaced refls, vcatSpaced impls)
+    where (headers, refls, impls) = unzip3 $ map rule $
+            filter (not . flip elem ["_", "(:)", "(:[])", "[]", "(++)"]
+                    . funName) $ cfgRules cf
+
+-- | -> (header, refl, impl)
+rule :: Rule -> (Doc, Doc, Doc)
+rule r =
+    let name = funName r
+        members = members' r
+        storageTypes = map storageType' members
+        unindexedNames = map ((++"_") . catNameNoCoerc) members
+        indexedNames = indexNames' unindexedNames
+        constructorSignatureOrEmpty
+            | null members = empty
+            | otherwise = text $ name ++ "("
+                ++ intercalate ", " [catNameNoCoerc c ++ "&&" | c <- members]
+                ++ ");"
+        headerClass = linesToText
+            [ "class " ++ name ++ " {"
+            , "public:"
+            ] $+$ nest 4 (linesToText
+            [ name ++ "() = default;"
+            , name ++ "(const " ++ name ++ "&); /* clone */"
+            , name ++ "(" ++ name ++ "&&) = default;"
+            , name ++ "& operator=(const " ++ name ++ "&); "
+                ++ "/* discard and replace by clone */"
+            , name ++ "& operator=(" ++ name ++ "&&) = default;"
+            ] $+$ constructorSignatureOrEmpty -- constructor
+            -- fields
+            $+$ foldr ($+$) empty
+                (map (\(typ, name) -> text (typ ++ " " ++ name ++ ";"))
+                (zip storageTypes indexedNames)))
+            $+$ text "};"
+
+        headerRefls = rawCoercionSpec name (precRule r) $+$ rawNodeNameSpec name
+
+        ctorInitializers = nest 4 . \case
+            [] -> empty
+            first:rest -> foldr ($+$) empty (text (": " ++ first)
+                                            : map (text . (", "++)) rest)
+        cloneValue storageCat value
+            | isPointerType' storageCat =
+                "ClonePtr<" ++ catNameNoCoerc storageCat ++ ">(" ++ value ++ ")"
+            | otherwise = value
+        moveValue storageCat value
+            | isPointerType' storageCat =
+                "std::make_unique<" ++ catNameNoCoerc storageCat
+                    ++ ">(std::move(" ++ value ++ "))"
+            | otherwise = "std::move(" ++ value ++ ")"
+        copyCtor = text
+            (name ++ "::" ++ name ++ "(const " ++ name ++ "& other)")
+            $+$ ctorInitializers
+                [name ++ "(" ++ cloneValue cat ("other." ++ name) ++ ")"
+                | (name, cat) <- zip indexedNames members] <> " {}"
+        copyAsg = text (name ++ "& " ++ name
+                         ++ "::operator=(const " ++ name ++ "& other) {")
+            $+$ nest 4 (linesToText (
+                [name ++ " = " ++ cloneValue cat ("other." ++ name) ++ ";"
+                | (name, cat) <- zip indexedNames members]
+                ++ ["return *this;"])) $+$ text "}"
+        ruleCtorOrEmpty
+            | null members = empty
+            | otherwise = text (name ++ "::" ++ name ++ "(" ++ intercalate ", "
+                    [catNameNoCoerc cat ++ "&& _" ++ show i
+                    | (cat, i :: Int) <- zip members [1..]] ++ ")")
+                $+$ ctorInitializers
+                    [name ++ "(" ++ moveValue cat ('_' : show i) ++ ")"
+                    | (name, cat, i :: Int) <- zip3 indexedNames members [1..]]
+                <> " {}"
+        impl = vcatSpaced
+            [ text $ "// " ++ name
+            , copyCtor
+            , copyAsg
+            , ruleCtorOrEmpty
+            ]
+
+    in (headerClass, headerRefls, impl)
+    where
+        members' :: Rule -> [Cat]
+        members' rule = [normCat cat | (Left cat) <- rhsRule rule]
+        storageType' :: Cat -> String
+        storageType' = \case
+            lst@(ListCat _) -> catNameNoCoerc lst
+            TokenCat s -> s
+            other -> "std::unique_ptr<" ++ catNameNoCoerc other ++ ">"
+        isPointerType' :: Cat -> Bool
+        isPointerType' = \case
+            CoercCat _ _ -> True
+            Cat _ -> True
+            _ -> False
+        indexNames' names =
+            help names Data.Map.empty
+            where
+                nonuniq = Data.Set.fromList $ nonunique names
+                help :: [String] -> Data.Map.Map String Int -> [String]
+                help [] _ = []
+                help (name:tail) prevs = if name `elem` nonuniq
+                    then
+                        let curindex = maybe 1 (+1) (Data.Map.lookup name prevs)
+                        in (name ++ show curindex) :
+                            help tail (Data.Map.insert name curindex prevs)
+                    else name : help tail prevs
+
+nonunique :: (Ord a, Eq a) => [a] -> [a]
+nonunique lst = case sort lst of
+    [] -> []
+    a:tail -> help True a tail
+    where
+        help enabled prev tail = case tail of
+            [] -> []
+            x:tail' -> if prev == x
+                then (if enabled
+                    then x : help False x tail'
+                    else help False x tail')
+                else help True x tail'

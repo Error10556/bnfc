@@ -1,5 +1,5 @@
 module BNFC.Backend.CPPVar.CPPUtil
-    (($++$), wrapNamespace, vcatSpaced, linesToText, groupNormalizeRules
+    (($++$), wrapNamespace, vcatSpaced, linesToText, groupRules
     , catNameNoCoerc, catNameWithCoerc, mergeCoercCats) where
 
 import Prelude hiding ((<>))
@@ -26,23 +26,17 @@ wrapNamespace name doc = foldr1 ($++$)
     ]
 
 linesToText :: [String] -> Doc
-linesToText = text . intercalate "\n"
+linesToText = foldr ($+$) empty . map text
 
--- | normalize = turn (Cat x) into (CoercCat x 0).
---Also normalizes Rule{valRCat}.
---Returns an error (Left msg) if a category is a list with a precedence
-groupNormalizeRules :: CF -> Either String (Data.Map.Map Cat [Rule])
-groupNormalizeRules = foldr add (Right Data.Map.empty) . cfgRules
+-- | Returns an error (Left msg) if a category is a list with a precedence
+groupRules :: CF -> Either String (Data.Map.Map Cat [Rule])
+groupRules = foldr add (Right Data.Map.empty) . cfgRules
     where
         add :: Rule -> Either String (Data.Map.Map Cat [Rule])
             -> Either String (Data.Map.Map Cat [Rule])
         add rule =
             let rcat = valRCat rule
-                normCat = case wpThing rcat of
-                    Cat str -> CoercCat str 0
-                    c -> c
-                normRCat = rcat{wpThing = normCat}
-                normRule = rule{valRCat = normRCat}
+                cat = wpThing rcat
                 containsCoerc = \case
                     CoercCat _ _ -> True
                     ListCat c -> containsCoerc c
@@ -50,11 +44,11 @@ groupNormalizeRules = foldr add (Right Data.Map.empty) . cfgRules
                 isListAndContainsCoerc = \case
                     ListCat c -> containsCoerc c
                     _ -> False
-            in if isListAndContainsCoerc normCat
+            in if isListAndContainsCoerc cat
                then const $ Left $
                     "Lists with precedences are unsupported (category "
-                    ++ catToStr normCat ++ ")"
-               else fmap (Data.Map.insertWith (++) normCat [normRule])
+                    ++ catToStr cat ++ ")"
+               else fmap (Data.Map.insertWith (++) cat [rule])
 
 -- | turns all KEY (CoercCat w _) into (Cat w)
 mergeCoercCats :: Data.Map.Map Cat [Rule] -> Data.Map.Map Cat [Rule]
