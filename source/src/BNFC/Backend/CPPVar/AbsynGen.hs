@@ -20,8 +20,7 @@ makeAbsyn :: SharedOptions -> CF -> (Doc, Doc)
 makeAbsyn opts cf = (hpp, cpp)
     where
         maybeNamespace = maybe id wrapNamespace (inPackage opts)
-        hpp = headerHead $++$ maybeNamespace
-            (reflectionTemplates $++$ headerTokens cf)
+        hpp = headerHead $++$ maybeNamespace (headerTokens cf)
         cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
             $++$ maybeNamespace
             (clonePtrImpl $++$ implTokens cf)
@@ -37,14 +36,12 @@ headerHead = text """
 
 reflectionTemplates :: Doc
 reflectionTemplates = text """
-namespace reflection {
 template <class T> struct CoercionLevel_t {};
 template<class T> constexpr int CoercionLevel = CoercionLevel_t<T>::value;
 
 template <class T> struct SyntaxNodeName_t {};
 template<class T>
 constexpr const char* SyntaxNodeName = SyntaxNodeName_t<T>::value;
-}
 """
 
 rawCoercionSpec :: String -> Integer -> Doc
@@ -59,24 +56,14 @@ rawNodeNameSpec name = linesToText
     , "{ static constexpr const char* value = \"" ++ name ++ "\"; };"
     ]
 
-coercionAndNameSpec :: String -> Integer -> Doc
-coercionAndNameSpec name coercion = text "namespace reflection {"
-    $+$ rawCoercionSpec name coercion
-    $+$ rawNodeNameSpec name
-    $+$ text "}"
-
-nameSpec :: String -> Doc
-nameSpec name = text "namespace reflection {"
-    $+$ rawNodeNameSpec name
-    $+$ text "}"
-
 tokenStorageName :: String -> String
 tokenStorageName "Value" = "MyValue"
 tokenStorageName _ = "Value"
 
-tokenStructWithRefConstructorsHeader :: String -> String -> Doc
+-- | -> (struct, reflection)
+tokenStructWithRefConstructorsHeader :: String -> String -> (Doc, Doc)
 tokenStructWithRefConstructorsHeader name storageType =
-    linesToText
+    (linesToText
         [ "struct " ++ name ++ " {"
         , "public:"
         , "    " ++ storageType ++ " " ++ tokenStorageName name ++ ";"
@@ -90,7 +77,7 @@ tokenStructWithRefConstructorsHeader name storageType =
         , "    " ++ name ++ "& operator=(const " ++ storageType ++ "&);"
         , "    " ++ name ++ "& operator=(" ++ storageType ++ "&&);"
         , "};"
-        ] $+$ coercionAndNameSpec name 0
+        ], rawCoercionSpec name 0 $+$ rawNodeNameSpec name)
 
 tokenStructWithRefConstructorsImpl :: String -> String -> Doc
 tokenStructWithRefConstructorsImpl name storageType =
@@ -114,9 +101,10 @@ tokenStructWithRefConstructorsImpl name storageType =
         , "}"
         ]
 
-tokenStructHeader :: String -> String -> Doc
+-- | -> (struct, reflection)
+tokenStructHeader :: String -> String -> (Doc, Doc)
 tokenStructHeader name storageType =
-    linesToText
+    (linesToText
         [ "struct " ++ name ++ " {"
         , "public:"
         , "    " ++ storageType ++ " " ++ tokenStorageName name ++ ";"
@@ -127,7 +115,7 @@ tokenStructHeader name storageType =
         , "    " ++ name ++ "(" ++ storageType ++ "); /* implicit */"
         , "    " ++ name ++ "& operator=(" ++ storageType ++ ");"
         , "};"
-        ] $+$ coercionAndNameSpec name 0
+        ], rawCoercionSpec name 0 $+$ rawNodeNameSpec name)
 
 tokenStructImpl :: String -> String -> Doc
 tokenStructImpl name storageType =
@@ -144,7 +132,9 @@ tokenStructImpl name storageType =
         ]
 
 headerTokens :: CF -> Doc
-headerTokens cf = foldr ($++$) empty $ litTokens ++ userTokens
+headerTokens cf = foldr ($++$) empty structs
+    $++$ wrapNamespace "reflection"
+    (reflectionTemplates $++$ foldr ($+$) empty reflections)
     where
         litTokens = map makeLitToken (literals cf)
         userTokens = map (makeUserToken . wpThing) $
@@ -158,6 +148,7 @@ headerTokens cf = foldr ($++$) empty $ litTokens ++ userTokens
             tokenStructWithRefConstructorsHeader s "std::string"
         makeUserToken s = 
             tokenStructWithRefConstructorsHeader s "std::string"
+        (structs, reflections) = unzip (litTokens ++ userTokens)
 
 implTokens :: CF -> Doc
 implTokens cf = foldr ($++$) empty $ litTokens ++ userTokens
@@ -165,15 +156,13 @@ implTokens cf = foldr ($++$) empty $ litTokens ++ userTokens
         litTokens = map makeLitToken (literals cf)
         userTokens = map (makeUserToken . wpThing) $
             [name | TokenReg name _ _ <- cfgPragmas cf]
-        makeLitToken "Char" = tokenStructImpl "Char" "char"
-        makeLitToken "String" =
-            tokenStructWithRefConstructorsImpl "String" "std::string"
-        makeLitToken "Integer" = tokenStructImpl "Integer" "int"
-        makeLitToken "Double" = tokenStructImpl "Double" "double"
-        makeLitToken s = -- Ident
+        makeLitToken s@"Char" = tokenStructImpl s "char"
+        makeLitToken s@"String" =
             tokenStructWithRefConstructorsImpl s "std::string"
-        makeUserToken s = 
-            tokenStructWithRefConstructorsImpl s "std::string"
+        makeLitToken s@"Integer" = tokenStructImpl s "int"
+        makeLitToken s@"Double" = tokenStructImpl s "double"
+        makeLitToken s = tokenStructWithRefConstructorsImpl s "std::string"
+        makeUserToken s = tokenStructWithRefConstructorsImpl s "std::string"
 
 clonePtrImpl :: Doc
 clonePtrImpl = text """
