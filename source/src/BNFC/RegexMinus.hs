@@ -8,7 +8,8 @@
 -- Most ideas taken from http://home.chello.no/~mgrsby/sgmlintr/file0005.htm
 --
 
-module BNFC.RegexMinus (Regex(..), charset, string, compactShow) where
+module BNFC.RegexMinus
+    (Regex(..), charset, string, removeMinuses, compactShow) where
 
 import Data.List
 
@@ -164,22 +165,4 @@ compactShow (Seq (Term a) b@(Rep _) ) = [a] ++ (compactShow b)
 compactShow (Seq a@(Seq _ _) b@(Seq _ _) ) = (compactShow a) ++ (compactShow b)
 compactShow (Seq a b ) = "(" ++ (compactShow a) ++ ")" ++ "(" ++ (compactShow b) ++ ")"
 
--- Example that requires loop detection. Taken From:
---  http://home.chello.no/~mgrsby/sgmlintr/file0005.htm
--- (a+b)* - aa*
-test = Sub (Rep (Or (Term 'a') (Term 'b') )) (Seq (Term 'a') (Rep (Term 'a')) )
--- a-b
-test2 = Sub (Term 'a') (Term 'b')
--- (a+b) - b
-test3 = Sub (Or (Term 'a') (Term 'b')) (Term 'b')
--- (a+b)c - b
-test4 = Sub (Seq (Or (Term 'a') (Term 'b')) (Term 'c')) (Term 'b')
--- (b*(a+b)c) - b
-test5 = Sub (Seq (Rep (Term 'b'))(Seq (Or (Term 'a') (Term 'b')) (Term 'c'))) (Term 'b')
--- Some normal looking string regexes.
-test6 = Sub (Rep (charset "abcdefghijklmnopqrstuvwxyz")) (string "hello")
-test7 = Sub (Rep (charset "abcdef")) (string "fad")
-test8 = Sub (Rep (charset "abcdef")) (string "db")
--- Simplified Case of above
-test9 = Sub (Rep (charset "abcdef")) (string "b")
-
+-- Tests moved to test/BNFC/RegexMinusSpec.hs

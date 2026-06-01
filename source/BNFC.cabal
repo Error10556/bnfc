@@ -319,6 +319,7 @@ test-suite unit-tests
     BNFC.CFSpec
     BNFC.GetCFSpec
     BNFC.OptionsSpec
+    BNFC.RegexMinusSpec
     BNFC.Hspec
     BNFC.Backend.BaseSpec
     BNFC.Backend.Common.MakefileSpec
