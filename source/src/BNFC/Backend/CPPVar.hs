@@ -11,6 +11,7 @@ import BNFC.Options
 import BNFC.Backend.Base
 import qualified BNFC.Backend.CPPVar.CPPUtil as CPPUtil
 import BNFC.Backend.CPPVar.AbsynGen
+import BNFC.Backend.CPPVar.FlexGen
 import qualified BNFC.Backend.C as BackendC (comment)
 
 makeCppVar :: SharedOptions -> CF -> MkFiles ()
@@ -19,5 +20,7 @@ makeCppVar opts cf = do
             Left msg -> error msg
             Right val -> val
         (absynHpp, absynCpp) = makeAbsyn opts cf groupedRules
+        (flexFile, {-implicitTokenNames-} _) = makeFlex opts cf
     mkfile absynHppFilename BackendC.comment absynHpp
     mkfile absynCppFilename BackendC.comment absynCpp
+    mkfile (flexFilename opts) BackendC.comment flexFile

@@ -250,6 +250,7 @@ library
     -- C++ with variants backend
     BNFC.Backend.CPPVar
     BNFC.Backend.CPPVar.AbsynGen
+    BNFC.Backend.CPPVar.FlexGen
     BNFC.Backend.CPPVar.CPPUtil
 
     -- Java backend
