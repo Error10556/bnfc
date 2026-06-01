@@ -8,7 +8,9 @@
 -- Most ideas taken from http://home.chello.no/~mgrsby/sgmlintr/file0005.htm
 --
 
-import List
+module BNFC.RegexMinus (Regex(..), charset, string, compactShow) where
+
+import Data.List
 
 data Regex a = Term a |
                Lambda | -- This is the 0-length string

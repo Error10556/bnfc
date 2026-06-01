@@ -178,6 +178,7 @@ library
     BNFC.CF
     BNFC.Check.EmptyTypes
     BNFC.Regex
+    BNFC.RegexMinus
     BNFC.TypeChecker
     BNFC.GetCF
     BNFC.Lexing
