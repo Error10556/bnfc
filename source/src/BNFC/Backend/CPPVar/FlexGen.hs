@@ -4,10 +4,13 @@ module BNFC.Backend.CPPVar.FlexGen (flexFilename, makeFlex) where
 import BNFC.CF
 import BNFC.Options
 import Text.PrettyPrint (Doc, text, ($+$), empty)
+import BNFC.PrettyPrint (Pretty(..))
 import BNFC.Backend.CPPVar.CPPUtil
 import qualified Data.Map
+import qualified Data.Set
 import Data.Char (ord)
 import BNFC.Utils (symbolToName, uncurry3)
+import Data.Int (Int8)
 
 flexFilename :: SharedOptions -> String
 flexFilename = (++".l") . lang
@@ -152,13 +155,3 @@ commentBlocks cf =
                 istr = show i
         docs = map (uncurry3 makeRules) $ uncurry (zip3 [1..]) . unzip
             $ [se | CommentM se <- cfgPragmas cf]
-
--- data FlexRegex
---     = Byteset Data.Set Int8
---     | Star FlexRegex
---     | Optional FlexRegex
---     | Plus FlexRegex
---     | Concat FlexRegex FlexRegex
---     | Set [FlexRegex]
---
--- regexToFlex :: Regex -> FlexRegex
