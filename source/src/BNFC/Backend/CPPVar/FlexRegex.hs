@@ -1,4 +1,18 @@
-module BNFC.Backend.CPPVar.FlexRegex (FlexRegex(..)) where
+module BNFC.Backend.CPPVar.FlexRegex
+    ( FlexRegex(..)
+    , byteset, onebyte, BNFC.Backend.CPPVar.FlexRegex.concat
+    , BNFC.Backend.CPPVar.FlexRegex.or
+    , byte2char, bytecharClass, bytecharRanges
+    , flexRegexPrecedence
+    , precedenceEmpty
+    , precedenceOnebyte
+    , precedenceByteset
+    , precedenceStar
+    , precedenceOptional
+    , precedencePlus
+    , precedenceConcat
+    , precedenceOr
+    ) where
 
 import qualified Data.Set
 import qualified BNFC.PrettyPrint
@@ -7,7 +21,8 @@ import Data.Char
 import Numeric
 
 data FlexRegex
-    = Onebyte Int
+    = Empty  -- ^ ""
+    | Onebyte Int  -- ^ technically Onebyte ch ~= Byteset (fromList [ch])
     | Byteset (Data.Set.Set Int)
     | Star FlexRegex
     | Optional FlexRegex
@@ -16,15 +31,40 @@ data FlexRegex
     | Or FlexRegex FlexRegex
     deriving (Show)
 
+onebyte :: Char -> FlexRegex
+onebyte ch = Onebyte o
+    where
+        _o = ord ch
+        o = if 0 <= _o && _o <= 255 then _o else
+            error "onebyte called with a non-byte character"
+
+byteset :: String -> FlexRegex
+byteset s = Byteset $ Data.Set.fromList ords
+    where
+        _ords = map ord s
+        ords = if all (\i -> 0 <= i && i <= 255) _ords then _ords else
+            error "byteset called with a non-byte-character string"
+
+concat :: [FlexRegex] -> FlexRegex
+concat = \case
+    [] -> Empty
+    nonempty -> foldr1 Concat nonempty
+
+or :: [FlexRegex] -> FlexRegex
+or = \case
+    [] -> Byteset $ Data.Set.fromList []
+    nonempty -> foldr1 Or nonempty
+
 instance BNFC.PrettyPrint.Pretty FlexRegex where
     pretty = \case
+            Empty -> text "\"\""
             Onebyte byte -> text $ byte2char False byte
             Byteset set -> text $
                 displayByteset (Data.Set.toList set)
             Star regex -> prettyPrec precedenceStar regex
                 BNFC.PrettyPrint.<> text "*"
             Optional regex -> prettyPrec precedenceOptional regex
-                BNFC.PrettyPrint.<> text "*"
+                BNFC.PrettyPrint.<> text "?"
             Plus regex -> prettyPrec precedencePlus regex
                 BNFC.PrettyPrint.<> text "+"
             Concat r1 r2 -> prettyPrec precedenceConcat r1
@@ -66,32 +106,35 @@ byte2char isInCharclass byte
     where
         safeBytes :: Data.Set.Set Int
         safeBytes = Data.Set.fromList . map (fromIntegral . ord) $
-            ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "_@#`'~&%"
+            ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "_@#`'~&%=;"
         safeInCharclass :: Data.Set.Set Int
         safeInCharclass = Data.Set.fromList . map (fromIntegral . ord) $
             ".+?*<>(){}$/:;\"|"
         escapedOutOfCharclass :: Data.Set.Set Int
         escapedOutOfCharclass = Data.Set.fromList . map (fromIntegral . ord) $
-            ".+?*<>(){}[]$^/:;\"\\"
+            ".+?*<>(){}[]$^/:\"\\"
 
--- | Decides between [^...] and [...]
+-- | Decides between [^...] and [...], uses bytecharRanges
 -- REQUIRES a sorted list as input
 bytecharClass :: [Int] -> String
-bytecharClass bytes =
-    let normal = bytecharRanges bytes
-        inv = bytecharRanges $ invertByteset [0..255] bytes
-    in if length normal <= length inv + 1
-        then "[" ++ normal ++ "]"
-        else "[^" ++ inv ++ "]"
-    where
-        invertByteset :: [Int] -> [Int] -> [Int]
-        invertByteset all orig = case all of
-            [] -> []
-            cur:all' -> case orig of
-                [] -> cur : all'
-                curorig:orig' -> if cur == curorig
-                    then invertByteset all' orig'
-                    else cur : invertByteset all' orig
+bytecharClass [] = "[^\0-\xff]"
+bytecharClass bytes
+    | bytes == [0..255] = "[\0-\xff]"
+    | otherwise =
+        let normal = bytecharRanges bytes
+            inv = bytecharRanges $ invertByteset [0..255] bytes
+        in if length normal <= length inv + 1
+            then "[" ++ normal ++ "]"
+            else "[^" ++ inv ++ "]"
+        where
+            invertByteset :: [Int] -> [Int] -> [Int]
+            invertByteset all orig = case all of
+                [] -> []
+                cur:all' -> case orig of
+                    [] -> cur : all'
+                    curorig:orig' -> if cur == curorig
+                        then invertByteset all' orig'
+                        else cur : invertByteset all' orig
 
 -- | e.g. [ord '1'..ord '9'] ++ [ord 'h'] -> "1-9h"
 -- flex discourages ranging over different classes, so we cannot
@@ -125,16 +168,18 @@ bytecharRanges bytes = concatMap saferanges [digits, caps, lows]
                         then helper start nxt tail
                         else (start, prev) : helper nxt nxt tail
 
+precedenceEmpty :: Int
+precedenceEmpty = 3
 precedenceOnebyte :: Int
-precedenceOnebyte = 2
+precedenceOnebyte = 3
 precedenceByteset :: Int
-precedenceByteset = 2
+precedenceByteset = 3
 precedenceStar :: Int
-precedenceStar = 1
+precedenceStar = 2
 precedenceOptional :: Int
-precedenceOptional = 1
+precedenceOptional = 2
 precedencePlus :: Int
-precedencePlus = 1
+precedencePlus = 2
 precedenceConcat :: Int
 precedenceConcat = 1
 precedenceOr :: Int
@@ -142,6 +187,7 @@ precedenceOr = 0
 
 flexRegexPrecedence :: FlexRegex -> Int
 flexRegexPrecedence = \case
+    Empty -> precedenceEmpty
     Onebyte _ -> precedenceOnebyte
     Byteset _ -> precedenceByteset
     Star _ -> precedenceStar

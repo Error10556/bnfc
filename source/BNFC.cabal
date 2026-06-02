@@ -334,6 +334,7 @@ test-suite unit-tests
     BNFC.Backend.CPP.NoSTLSpec
     BNFC.Backend.CPP.STLSpec
     BNFC.Backend.CSpec
+    BNFC.Backend.CPPVar.FlexRegexSpec
     BNFC.Backend.HaskellSpec
     BNFC.Backend.HaskellGADTSpec
     BNFC.Backend.Haskell.CFtoHappySpec
