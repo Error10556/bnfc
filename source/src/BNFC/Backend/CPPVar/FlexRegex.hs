@@ -1,7 +1,6 @@
 module BNFC.Backend.CPPVar.FlexRegex
     ( FlexRegex(..)
-    , byteset, onebyte, BNFC.Backend.CPPVar.FlexRegex.concat
-    , BNFC.Backend.CPPVar.FlexRegex.or
+    , byteset, onebyte, flexConcat , flexOr
     , byte2char, bytecharClass, bytecharRanges
     , flexRegexPrecedence
     , precedenceEmpty
@@ -16,9 +15,12 @@ module BNFC.Backend.CPPVar.FlexRegex
 
 import qualified Data.Set
 import qualified BNFC.PrettyPrint
--- import qualified BNFC.RegexMinus
+import qualified BNFC.RegexMinus as Minus
 import Data.Char
 import Numeric
+import Data.Bits
+import Data.Either
+import Data.List
 
 data FlexRegex
     = Empty  -- ^ ""
@@ -29,7 +31,7 @@ data FlexRegex
     | Plus FlexRegex
     | Concat FlexRegex FlexRegex
     | Or FlexRegex FlexRegex
-    deriving (Show)
+    deriving (Show, Ord, Eq)
 
 onebyte :: Char -> FlexRegex
 onebyte ch = Onebyte o
@@ -45,13 +47,13 @@ byteset s = Byteset $ Data.Set.fromList ords
         ords = if all (\i -> 0 <= i && i <= 255) _ords then _ords else
             error "byteset called with a non-byte-character string"
 
-concat :: [FlexRegex] -> FlexRegex
-concat = \case
+flexConcat :: [FlexRegex] -> FlexRegex
+flexConcat = \case
     [] -> Empty
     nonempty -> foldr1 Concat nonempty
 
-or :: [FlexRegex] -> FlexRegex
-or = \case
+flexOr :: [FlexRegex] -> FlexRegex
+flexOr = \case
     [] -> Byteset $ Data.Set.fromList []
     nonempty -> foldr1 Or nonempty
 
@@ -195,3 +197,90 @@ flexRegexPrecedence = \case
     Plus _ -> precedencePlus
     Concat _ _ -> precedenceConcat
     Or _ _ -> precedenceOr
+
+-- | encodes a character with code c into a list of bytes.
+-- See 'man 7 utf8'
+-- Don't think we need a library just for this
+utf8encode :: Int -> [Int]
+utf8encode c
+    | c < 0 = error "Negative char"
+    | c <= 0x7f = [c]
+    | c <= 0x7ff = [0xc0 + shiftR6 1 c, 0x80 + (c .&. 0x3F)]
+    | c <= 0xffff =
+        [0xe0 + shiftR6 2 c, 0x80 + shiftR6 1 c, 0x80 + (c .&. 0x3f)]
+    | c <= 0x1fffff =
+        [ 0xf0 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+    | c <= 0x3ffffff =
+        [ 0xf8 + shiftR6 4 c
+        , 0x80 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+    | otherwise =
+        [ 0xfc + shiftR6 5 c
+        , 0x80 + shiftR6 4 c
+        , 0x80 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+    where
+        shiftR6 n c = (c `shiftR` (6 * n)) .&. 0x3f
+
+-- | Removes minuses from regexes
+-- simplifies:
+-- (1) aa* -> a+
+-- (2) r|Phi -> r
+-- (3) r|"" -> r?
+-- (4) tree of Seq -> list
+-- (5) a"", ""a -> a
+-- (6) aPhi, Phia -> Phi
+-- (7) tree of Or -> set
+-- (8) [set1]|[set2] -> [set1set2]
+-- (9) ""* -> ""
+fromMinusRegex :: Minus.Regex Char -> FlexRegex
+fromMinusRegex = \case
+    Minus.Term ch -> flexConcat . map Onebyte . utf8encode . ord $ ch
+    Minus.Lambda -> Empty
+    Minus.Phi -> byteset ""
+    Minus.Rep r -> case fromMinusRegex r of
+            bs@(Byteset set) -> if null set then bs else Star bs  -- ^ (9)
+            other -> Star other
+    or@(Minus.Or _ _) -> let
+            regexSet = makeRegexSetFromOr or  -- ^ (7)
+            (bytesets, nonbytesets) = partitionEithers . map
+                (\case Byteset set -> Left set; other -> Right other) $
+                Data.Set.toList regexSet
+            onebyteset = Data.Set.unions bytesets  -- ^ (2) (8)
+            unifiedRegexes = if null onebyteset then nonbytesets
+                else Byteset onebyteset : nonbytesets
+        -- | Empty `elem` unifiedRegexes iff it is an `elem` of regexSet
+        in if Empty `elem` regexSet
+            then Optional . flexConcat . delete Empty $ unifiedRegexes  -- ^ (3)
+            else flexConcat unifiedRegexes
+    minus@(Minus.Sub _ _) -> fromMinusRegex $ Minus.removeMinuses minus
+    seq@(Minus.Seq _ _) -> let
+            regexList = makeRegexListFromSeq seq  -- ^ (4)
+            -- | (5)
+            listNoEmpty = filter (\case Empty -> False; _ -> True) regexList
+            emptyset = byteset ""
+        in if emptyset `elem` listNoEmpty then emptyset  -- ^ (6)
+            else flexConcat $ foldr foldStar2Plus [] listNoEmpty -- ^ (1)
+    where
+        makeRegexSetFromOr = \case
+            Minus.Or a b -> Data.Set.union
+                (makeRegexSetFromOr a) (makeRegexSetFromOr b)
+            reg -> Data.Set.singleton $ fromMinusRegex reg
+        makeRegexListFromSeq = \case
+            Minus.Seq a b -> makeRegexListFromSeq a ++ makeRegexListFromSeq b
+            reg -> [fromMinusRegex reg]
+        foldStar2Plus elem = \case -- case tail of
+            [] -> [elem]
+            tail@(Star reg : xs) -> if reg == elem then Plus elem : xs
+                else elem : tail
+            tail -> elem : tail
