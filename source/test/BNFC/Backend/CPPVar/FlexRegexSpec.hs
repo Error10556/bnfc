@@ -9,6 +9,7 @@ import Control.Exception (evaluate)
 import Data.Char
 import Numeric
 import Data.List
+import BNFC.RegexMinus
 
 spec :: Spec
 spec = do
@@ -98,6 +99,41 @@ spec = do
                 ++ concatMap (("\\x"++) . pad2 . flip showHex "") other)
         it "char 256 throws" $
             evaluate (last $ RX.byte2char True 256) `shouldThrow` anyException
+
+    describe "Conversion from RegexMinus" $ do
+        let test str minus = (show . pretty . RX.fromMinusRegex $ minus)
+                `shouldBe` str
+        -- sort "qweйцу" = "eqwйуц"
+        -- "йуц" in utf8 in hex is d0b9 d183 d186
+        it "UTF8" $ test "[eqw]|\\xd0\\xb9|\\xd1\\x83|\\xd1\\x86"
+            $ charset "qweйцу"
+        it "aa* -> a+" $ test "a+" $ Seq (Term 'a') (Rep (Term 'a'))
+        it "(a|bc)(a|bc)* -> (a|bc)+" $ test "(a|bc)+" $
+            let abc = Or (Term 'a') (Seq (Term 'b') (Term 'c'))
+            in Seq abc (Rep abc)
+        -- Phi = empty language
+        it "r|Phi -> r" $ test "r" $ Or (Term 'r') Phi
+        it "a|b|Phi|c -> [a-c]" $ test "[a-c]" $ Or (Term 'a') $ Or (Term 'b') $
+            Or Phi $ Term 'c'
+        it "r|\"\" -> r?" $ test "r?" $ Or (Term 'r') Lambda
+        it "a|b|\"\"|c -> [a-c]?" $ test "[a-c]?" $ Or (Term 'a')
+            $ Or (Term 'b') $ Or Lambda $ Term 'c'
+        it "a|b|\"\"|Phi|cd -> ([ab]|cd)?" $ test "([ab]|cd)?" $ Or (Term 'a') $
+            Or (Term 'b') $ Or Lambda $ Or Phi $ Seq (Term 'c') (Term 'd')
+        it "a\"\", \"\"a -> a" $ test "ac" $ Seq (Term 'a') $ Seq Lambda $
+            Term 'c'
+        it "aPhi, Phia -> Phi" $ test "[^\\0-\\xff]" $ Seq (Term 'a') $
+            Seq (Term 'b') $ Seq Phi $ Term 'c'
+        it "\"\"* -> \"\"" $ test "\"\"" $ Rep Lambda
+
+        it "a([c] - [^c])b -> acb" $ test "acb" $ Seq (Term 'a') $
+            Seq (Sub (charset "c") (charset (['\0'..'b'] ++ ['d'..'\xff']))) $
+            Term 'b'
+        it "a([a-z] - [a-k] - [l-z])b -> Phi" $ test "[^\\0-\\xff]" $
+            Seq (Term 'a')
+            $ Seq (Sub (Sub (charset ['a'..'z']) (charset ['a'..'k']))
+                       (charset ['l'..'z']))
+            $ Term 'b'
 
     where
         pad2 s = take (2 - length s) ['0'..] ++ s

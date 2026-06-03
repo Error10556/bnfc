@@ -11,6 +11,7 @@ module BNFC.Backend.CPPVar.FlexRegex
     , precedencePlus
     , precedenceConcat
     , precedenceOr
+    , fromMinusRegex
     ) where
 
 import qualified Data.Set
@@ -119,9 +120,9 @@ byte2char isInCharclass byte
 -- | Decides between [^...] and [...], uses bytecharRanges
 -- REQUIRES a sorted list as input
 bytecharClass :: [Int] -> String
-bytecharClass [] = "[^\0-\xff]"
+bytecharClass [] = "[^\\0-\\xff]"
 bytecharClass bytes
-    | bytes == [0..255] = "[\0-\xff]"
+    | bytes == [0..255] = "[\\0-\\xff]"
     | otherwise =
         let normal = bytecharRanges bytes
             inv = bytecharRanges $ invertByteset [0..255] bytes
@@ -243,26 +244,31 @@ utf8encode c
 -- (7) tree of Or -> set
 -- (8) [set1]|[set2] -> [set1set2]
 -- (9) ""* -> ""
+-- (10) Phi* -> Phi
 fromMinusRegex :: Minus.Regex Char -> FlexRegex
 fromMinusRegex = \case
     Minus.Term ch -> flexConcat . map Onebyte . utf8encode . ord $ ch
     Minus.Lambda -> Empty
     Minus.Phi -> byteset ""
     Minus.Rep r -> case fromMinusRegex r of
-            bs@(Byteset set) -> if null set then bs else Star bs  -- ^ (9)
+            Empty -> Empty  -- ^ (9)
+            bs@(Byteset set) -> if null set then bs else Star bs  -- ^ (10)
             other -> Star other
     or@(Minus.Or _ _) -> let
             regexSet = makeRegexSetFromOr or  -- ^ (7)
             (bytesets, nonbytesets) = partitionEithers . map
-                (\case Byteset set -> Left set; other -> Right other) $
+                (\case
+                    Byteset set -> Left set
+                    Onebyte b -> Left (Data.Set.singleton b)
+                    other -> Right other) $
                 Data.Set.toList regexSet
             onebyteset = Data.Set.unions bytesets  -- ^ (2) (8)
             unifiedRegexes = if null onebyteset then nonbytesets
                 else Byteset onebyteset : nonbytesets
         -- | Empty `elem` unifiedRegexes iff it is an `elem` of regexSet
         in if Empty `elem` regexSet
-            then Optional . flexConcat . delete Empty $ unifiedRegexes  -- ^ (3)
-            else flexConcat unifiedRegexes
+            then Optional . flexOr . delete Empty $ unifiedRegexes  -- ^ (3)
+            else flexOr unifiedRegexes
     minus@(Minus.Sub _ _) -> fromMinusRegex $ Minus.removeMinuses minus
     seq@(Minus.Seq _ _) -> let
             regexList = makeRegexListFromSeq seq  -- ^ (4)
