@@ -5,12 +5,11 @@ import BNFC.CF
 import BNFC.Options
 import Text.PrettyPrint (Doc, text, ($+$), empty)
 import BNFC.PrettyPrint (Pretty(..))
+import BNFC.Backend.CPPVar.FlexRegex as FReg
 import BNFC.Backend.CPPVar.CPPUtil
 import qualified Data.Map
-import qualified Data.Set
 import Data.Char (ord)
 import BNFC.Utils (symbolToName, uncurry3)
-import Data.Int (Int8)
 
 flexFilename :: SharedOptions -> String
 flexFilename = (++".l") . lang
@@ -28,7 +27,7 @@ makeFlex opts cf = (flexHead opts
     $+$ defInteger opts cf
     $+$ defChar opts cf
     $+$ defIdent opts cf
-    $++$ text "<INITIAL>[[:space:]]+ ;"
+    $++$ text "<INITIAL>[\\t\\n\\f\\r\\x20]+ /* whitespace */;"
     $+$ text ("<INITIAL><<EOF>> return " ++ bisonParserName opts
         ++ "::make_YYEOF();")
     $+$ text ("<INITIAL>. return " ++ bisonParserName opts
@@ -40,8 +39,9 @@ makeFlex opts cf = (flexHead opts
 
 defImplicitTokens :: SharedOptions -> Data.Map.Map String String -> Doc
 defImplicitTokens opts mp = linesToText
-    ["<INITIAL>" ++ show str ++ " return " ++ bisonParserName opts
-    ++ "::make_" ++ name ++ "();" | (str, name) <- Data.Map.toList mp]
+    ["<INITIAL>" ++ show (pretty (flexConcatUTF8 str))
+        ++ " return " ++ bisonParserName opts
+        ++ "::make_" ++ name ++ "();" | (str, name) <- Data.Map.toList mp]
 
 bisonParserName :: SharedOptions -> String
 bisonParserName opts = case inPackage opts of
@@ -135,23 +135,38 @@ flexHead opts = linesToText $
             Just s -> s
 
 oneLineComments :: CF -> Doc
-oneLineComments cf = linesToText $
-    ["<INITIAL>" ++ show s ++ ".* ;" | CommentS s <- cfgPragmas cf]
+oneLineComments cf = foldr ($+$) empty
+    [text "<INITIAL>" <> pretty (flexConcatUTF8 s) <> text ".* ;"
+        | CommentS s <- cfgPragmas cf]
 
 -- | (start condition declarations, rules)
 commentBlocks :: CF -> (Doc, Doc)
 commentBlocks cf =
-    ( linesToText . map (("%s COMMENT"++) . show) $ [1..length docs]
+    ( linesToText . map (("%x COMMENT"++) . show) $ [1..length docs]
     , vcatSpaced docs )
-    where 
+    where
         makeRules :: Int -> String -> String -> Doc
-        makeRules i start end = linesToText
-            [ "<INITIAL>" ++ show start ++ " BEGIN(COMMENT" ++ istr ++ ");"
-            , "<COMMENT" ++ istr ++ ">" ++ show end ++ " BEGIN(INITIAL);"
-            -- TODO optimize to match [^(head end)]+ instead of .|\n
-            , "<COMMENT" ++ istr ++ ">.|\\n ;"
-            ]
+        makeRules i start end =
+            text "<INITIAL>"
+                <> pretty (FReg.flexConcatUTF8 start)
+                <> text (" BEGIN(COMMENT" ++ istr ++ ");")
+            $+$ text ("<COMMENT" ++ istr ++ ">")
+                <> pretty endregex <> text " BEGIN(INITIAL);"
+            $+$ text ("<COMMENT" ++ istr ++ ">[^")
+                <> pretty endhead
+                <> text "]+ ;"
+            $+$ case endregex of
+                -- | multibyte/multicharacter ending => handle endhead
+                FReg.Concat _ _ -> text ("<COMMENT" ++ istr ++ ">")
+                    <> pretty endhead <> text " ;"
+                -- | singlebyte ending
+                _ -> empty
             where
                 istr = show i
+                endregex = FReg.flexConcatUTF8 end
+                endhead = case endregex of
+                    FReg.Concat b@(FReg.Onebyte _) _ -> b
+                    b@(FReg.Onebyte _) -> b
+                    _ -> error "empty ending in a block comment"
         docs = map (uncurry3 makeRules) $ uncurry (zip3 [1..]) . unzip
             $ [se | CommentM se <- cfgPragmas cf]

@@ -2,6 +2,8 @@ module BNFC.Backend.CPPVar.FlexRegex
     ( FlexRegex(..)
     , byteset, onebyte, flexConcat , flexOr
     , byte2char, bytecharClass, bytecharRanges
+    , flexConcatUTF8
+    , flexCharsetUTF8
     , flexRegexPrecedence
     , precedenceEmpty
     , precedenceOnebyte
@@ -57,6 +59,12 @@ flexOr :: [FlexRegex] -> FlexRegex
 flexOr = \case
     [] -> Byteset $ Data.Set.fromList []
     nonempty -> foldr1 Or nonempty
+
+flexConcatUTF8 :: String -> FlexRegex
+flexConcatUTF8 = flexConcat . map Onebyte . concatMap (utf8encode . ord)
+
+flexCharsetUTF8 :: String -> FlexRegex
+flexCharsetUTF8 = fromMinusRegex . Minus.charset
 
 instance BNFC.PrettyPrint.Pretty FlexRegex where
     pretty = \case
