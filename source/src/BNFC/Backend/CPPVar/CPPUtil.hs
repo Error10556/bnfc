@@ -1,10 +1,10 @@
 module BNFC.Backend.CPPVar.CPPUtil
     (($++$), wrapNamespace, vcatSpaced, linesToText, groupRules
-    , catNameNoCoerc, catNameWithCoerc, mergeCoercCats) where
+    , catNameNoCoerc, catNameWithCoerc, mergeCoercCats
+    , GroupedRules) where
 
 import Prelude hiding ((<>))
 import BNFC.CF
-import Data.List (intercalate)
 import qualified Data.Map
 import Text.PrettyPrint (Doc, ($+$), text, isEmpty, empty)
 
@@ -28,8 +28,10 @@ wrapNamespace name doc = foldr1 ($++$)
 linesToText :: [String] -> Doc
 linesToText = foldr ($+$) empty . map text
 
+type GroupedRules = Data.Map.Map Cat [Rule]
+
 -- | Returns an error (Left msg) if a category is a list with a precedence
-groupRules :: CF -> Either String (Data.Map.Map Cat [Rule])
+groupRules :: CF -> Either String GroupedRules
 groupRules = foldr add (Right Data.Map.empty) . cfgRules
     where
         add :: Rule -> Either String (Data.Map.Map Cat [Rule])
@@ -66,6 +68,6 @@ catNameNoCoerc = \case
 catNameWithCoerc :: Cat -> String
 catNameWithCoerc = \case
     CoercCat w n -> w ++ show n
-    ListCat c -> "List" ++ catNameWithCoerc c
+    ListCat c -> "List" ++ catNameNoCoerc c  -- NoCoerc for lists
     TokenCat w -> w
     Cat w -> w ++ "0"

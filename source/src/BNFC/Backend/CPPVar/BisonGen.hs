@@ -1,0 +1,220 @@
+{- HLINT ignore "Fuse foldr/map" -}
+module BNFC.Backend.CPPVar.BisonGen (bisonFilename, makeBison) where
+
+import qualified BNFC.Options
+import qualified BNFC.CF
+import qualified Data.Map
+import Text.PrettyPrint
+import BNFC.Backend.CPPVar.CPPUtil
+import Data.List (intercalate)
+
+bisonFilename :: BNFC.Options.SharedOptions -> String
+bisonFilename opts = BNFC.Options.lang opts ++ ".ypp"
+
+makeBison :: BNFC.Options.SharedOptions -> BNFC.CF.CF
+    -> Data.Map.Map String String -> GroupedRules -> Doc
+makeBison opts cf implicitTokenNames groupedRules =
+    bisonHeader opts
+    $++$ tokenDefs implicitTokenNames cf
+    $++$ codeRequires utils
+    $++$ nonterms groupedRules
+    $++$ codeProvides utils entrypoints
+    $++$ codeLex utils
+    $++$ text "%start __start__"
+    $++$ text "%%"
+    $++$ startRules entrypoints
+    $++$ vcatSpaced (map (uncurry $ category implicitTokenNames)
+            $ Data.Map.toList groupedRules)
+    $++$ text "%%"
+    -- ...
+    where
+        utils = newBisonUtils opts
+        entrypoints = extractEntrypoints cf groupedRules
+
+extractEntrypoints :: BNFC.CF.CF -> GroupedRules -> [BNFC.CF.Cat]
+extractEntrypoints cf grouped = if null res then Data.Map.keys grouped else res
+    where
+        res = concat [map BNFC.CF.wpThing cats
+            | BNFC.CF.EntryPoints cats <- BNFC.CF.cfgPragmas cf]
+
+bisonHeader :: BNFC.Options.SharedOptions -> Doc
+bisonHeader opts = linesToText
+    [ "%require \"3.2\""
+    , "%language \"c++\""
+    , "%define api.value.type variant"
+    , "%define api.token.constructor"
+    , "%define api.parser.class {Parser}"
+    ]
+    $+$ case BNFC.Options.inPackage opts of
+        Nothing -> empty
+        Just ns -> text ("%define api.namespace {" ++ ns ++ "}")
+    $+$ linesToText
+    [ "%lex-param {yyscan_t scanner}"
+    , "%parse-param {yyscan_t scanner}"
+    , "%parse-param {std::optional<std::variant<ParseResultVariant, syntax_error>>* result}"
+    , "%header \"" ++ BNFC.Options.lang opts ++ ".tab.hpp\""
+    ]
+
+data BisonUtils = BisonUtils
+    { namespaceWrap :: Doc -> Doc
+    , namespaceNameOrEmpty :: String
+    , namespacePrefix :: String
+    }
+
+newBisonUtils :: BNFC.Options.SharedOptions -> BisonUtils
+newBisonUtils opts = case BNFC.Options.inPackage opts of
+    Nothing -> BisonUtils
+        { namespaceWrap = id
+        , namespaceNameOrEmpty = ""
+        , namespacePrefix = ""
+        }
+    Just ns -> BisonUtils
+        { namespaceWrap = bisonBraces ("namespace " ++ ns)
+        , namespaceNameOrEmpty = ns
+        , namespacePrefix = ns ++ "::"
+        }
+
+tokenDefs :: Data.Map.Map String String -> BNFC.CF.CF -> Doc
+tokenDefs implicit cf = linesToText
+    [ "%token " ++ tkname | tkname <- Data.Map.elems implicit ]
+    $+$ if BNFC.CF.catIdent `elem` BNFC.CF.cfgLiterals cf
+        then text "%token <std::string> IDENT" else empty
+
+bisonBraces :: String -> Doc -> Doc
+bisonBraces s d = text (s ++ " {") $+$ nest 4 d $+$ "}"
+
+codeRequires :: BisonUtils -> Doc
+codeRequires utils = bisonBraces "%code requires" $ linesToText
+    [ "#include <string_view>"
+    , "#include <optional>"
+    , "#include <variant>"
+    , "#include \"Absyn.hpp\""
+    ] $++$ text "using yyscan_t = void*;"
+    $+$ namespaceWrap utils
+        (text "using ParseResultVariant = std::variant<LC::Program>;")
+
+nonterms :: GroupedRules -> Doc
+nonterms rules = linesToText $ map nonterm $ Data.Map.keys rules
+    where
+        nonterm cat = concat
+            [ "%nterm <"
+            , catNameNoCoerc cat
+            , "> "
+            , catNameWithCoerc cat
+            ]
+
+codeProvides :: BisonUtils -> [BNFC.CF.Cat] -> Doc
+codeProvides utils entrypoints = bisonBraces "%code provides" $ namespaceWrap utils $
+    linesToText
+    [ "using ParseResultOrError ="
+    , "    std::variant<ParseResultVariant, Parser::syntax_error>;"
+    , "ParseResultOrError Parse(FILE* file);"
+    , "ParseResultOrError Parse(std::string_view str);"
+    ] $+$ foldr ($+$) empty (map entrypoint entrypoints)
+    where
+        entrypoint cat = linesToText
+            [ funcName ++ "(FILE* file);"
+            , funcName ++ "(std::string_view str);"
+            ]
+            where
+                classname = catNameNoCoerc cat
+                funcName = concat
+                    [ "std::variant<"
+                    , namespacePrefix utils
+                    , classname
+                    , ", Parser::syntax_error> Parse"
+                    , classname
+                    ]
+
+codeLex :: BisonUtils -> Doc
+codeLex utils = bisonBraces "%code" $
+    text (concat ["extern ", namespacePrefix utils, "Parser::symbol_type "
+                 , namespaceNameOrEmpty utils, "lex(yyscan_t scanner);"])
+    $++$ namespaceWrap utils (linesToText
+        [ "inline Parser::symbol_type yylex(yyscan_t scanner) {"
+        , "    return " ++ namespaceNameOrEmpty utils ++ "lex(scanner);"
+        , "}"
+        ])
+
+bisonRules :: [String] -> Doc
+bisonRules ls = nest 4 $
+    (case ls of
+    [] -> empty
+    first:tail -> text (": " ++ first) $+$ linesToText (map ("| "++) tail)
+    ) $+$ text ";"
+
+startRules :: [BNFC.CF.Cat] -> Doc
+startRules entrypoints =
+    text "__start__" $+$ bisonRules (map rule entrypoints)
+    where
+        rule cat = catNameWithCoerc cat
+            ++ " YYEOF { *result = {{ParseResultVariant(std::move($1))}}; }"
+
+category :: Data.Map.Map String String -> BNFC.CF.Cat -> [BNFC.CF.Rule] -> Doc
+category implicitTokenNames cat rules = case cat of
+    BNFC.CF.ListCat _ -> text (catNameWithCoerc cat) $+$ bisonRules
+            [makeRule r | r <- rules, BNFC.CF.internal r == BNFC.CF.Parsable]
+        where
+            makeRule r = let rhs = BNFC.CF.rhsRule r in
+                case BNFC.CF.funName r of
+                "_" -> coercionRule rhs
+                "(:)" -> concat
+                    [ "/* (:) */ "
+                    , sentFormToBison rhs
+                    , " { $$ = std::move($"
+                    , show dollarList
+                    , "); $$.push_front(std::move($"
+                    , show dollarItem
+                    , ")); }"
+                    ]
+                    where
+                        [dollarItem, dollarList] = rhsObjectIndices rhs
+                "(:[])" -> concat
+                    [ "/* (:[]) */ "
+                    , sentFormToBison rhs
+                    , " { $$.push_front(std::move($"
+                    , show dollarItem
+                    , ")); }"
+                    ]
+                    where
+                        [dollarItem] = rhsObjectIndices rhs
+                "[]" -> "/* [] */ { }"
+                name -> error "Invalid name for a list category: " ++ name
+        
+    _ -> text (catNameWithCoerc cat) $+$ bisonRules
+            [makeRule r | r <- rules, BNFC.CF.internal r == BNFC.CF.Parsable]
+        where
+            makeRule r = case BNFC.CF.funName r of
+                "_" -> coercionRule (BNFC.CF.rhsRule r)
+                name -> emplacementRule name (BNFC.CF.rhsRule r)
+    where
+        coercionRule :: BNFC.CF.SentForm -> String
+        coercionRule rhs = concat
+                [ "/* _ */ "
+                , sentFormToBison rhs
+                , " { $$ = std::move($"
+                , show $ case rhsObjectIndices rhs of
+                    [i] -> i
+                    _ -> error "Coercion object count /= 1"
+                , ")}; }"
+                ]
+        emplacementRule name rhs = concat
+            [ "/* "
+            , name
+            , " */ "
+            , sentFormToBison rhs
+            , " { $$.emplace<"
+            , name
+            , ">("
+            , intercalate ", " ["std::move($" ++ show i ++ ")"
+                | i <- rhsObjectIndices rhs]
+            , "); }"
+            ]
+        sentFormToBison :: BNFC.CF.SentForm -> String
+        sentFormToBison = unwords . map (\case
+            Left cat -> catNameWithCoerc cat
+            Right s -> (case s `Data.Map.lookup` implicitTokenNames of
+                Nothing -> error "string token not named"
+                Just name -> name))
+        rhsObjectIndices :: BNFC.CF.SentForm -> [Int]
+        rhsObjectIndices rhs = [i | (Left _, i) <- zip rhs [1..]]
