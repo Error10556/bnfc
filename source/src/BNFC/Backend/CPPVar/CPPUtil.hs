@@ -1,10 +1,18 @@
 module BNFC.Backend.CPPVar.CPPUtil
-    (($++$), wrapNamespace, vcatSpaced, linesToText, groupRules
-    , catNameNoCoerc, catNameWithCoerc, mergeCoercCats
+    (($++$)
+    , wrapNamespace
+    , wrapPackage
+    , vcatSpaced
+    , linesToText
+    , groupRules
+    , catNameNoCoerc
+    , catNameWithCoerc
+    , mergeCoercCats
     , GroupedRules) where
 
 import Prelude hiding ((<>))
 import BNFC.CF
+import qualified BNFC.Options
 import qualified Data.Map
 import Text.PrettyPrint (Doc, ($+$), text, isEmpty, empty)
 
@@ -24,6 +32,9 @@ wrapNamespace name doc = foldr1 ($++$)
     , doc
     , text $ "}  // namespace " ++ name
     ]
+
+wrapPackage :: BNFC.Options.SharedOptions -> Doc -> Doc
+wrapPackage opts = maybe id wrapNamespace (BNFC.Options.inPackage opts)
 
 linesToText :: [String] -> Doc
 linesToText = foldr ($+$) empty . map text
