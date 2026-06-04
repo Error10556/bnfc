@@ -1,5 +1,5 @@
 {- HLINT ignore "Use zipWith" -}
-module BNFC.Backend.CPPVar.FlexGen (flexFilename, makeFlex) where
+module BNFC.Backend.CPPVar.FlexGen (flexFilename, makeFlex, scannerDecl) where
 
 import BNFC.CF
 import BNFC.Options
@@ -10,6 +10,7 @@ import BNFC.Backend.CPPVar.CPPUtil
 import qualified Data.Map
 import Data.Char (ord)
 import BNFC.Utils (symbolToName, uncurry3)
+import Data.Maybe (fromMaybe)
 
 flexFilename :: SharedOptions -> String
 flexFilename = (++".l") . lang
@@ -32,10 +33,13 @@ makeFlex opts cf = (flexHead opts
         ++ "::make_YYEOF();")
     $+$ text ("<INITIAL>. return " ++ bisonParserName opts
         ++ "::make_YYerror();")
+    $++$ text "%%"
+    $++$ maybeWrapNamespace (scannerDecl opts $++$ scannerImpl opts)
     , tkNames)
     where
         (bcommConditions, bcommRules) = commentBlocks cf
         tkNames = nameAllTokens cf
+        maybeWrapNamespace = maybe id wrapNamespace (inPackage opts)
 
 defImplicitTokens :: SharedOptions -> Data.Map.Map String String -> Doc
 defImplicitTokens opts mp = linesToText
@@ -170,3 +174,50 @@ commentBlocks cf =
                     _ -> error "empty ending in a block comment"
         docs = map (uncurry3 makeRules) $ uncurry (zip3 [1..]) . unzip
             $ [se | CommentM se <- cfgPragmas cf]
+
+scannerDecl :: SharedOptions -> Doc
+scannerDecl opts = linesToText
+    [ "class " ++ name ++ " {"
+    , "    yyscan_t scanner;"
+    , "    " ++ name ++ "();"
+    , ""
+    , "public:"
+    , "    " ++ name ++ "(FILE* file);"
+    , "    " ++ name ++ "(std::string_view str);"
+    , "    yyscan_t FlexScanner() const;"
+    , "    ~" ++ name ++ "();"
+    , "};"
+    ]
+    where
+        name = case inPackage opts of
+            Nothing -> "Scanner"
+            Just ns -> ns ++ "Scanner"
+
+scannerImpl :: SharedOptions -> Doc
+scannerImpl opts = linesToText
+    [ name ++ "::" ++ name ++ "() {"
+    , "    int err = " ++ prefix ++ "lex_init_extra(new std::string(), &scanner);"
+    , "    if (err) throw std::system_error(err, std::generic_category(),"
+    , "        \"Cannot create scanner\");"
+    , "}"
+    , ""
+    , name ++ "::" ++ name ++ "(FILE* file) : " ++ name ++ "() {"
+    , "    " ++ prefix ++ "restart(file, scanner);"
+    , "}"
+    , ""
+    , name ++ "::" ++ name ++ "(std::string_view str) : " ++ name ++ "() {"
+    , "    " ++ prefix ++ "_scan_bytes(str.data(), str.size(), scanner);"
+    , "}"
+    , ""
+    , "yyscan_t " ++ name ++ "::FlexScanner() const { return scanner; }"
+    , ""
+    , name ++ "::~" ++ name ++ "() {"
+    , "    delete " ++ prefix ++ "get_extra(scanner);"
+    , "    " ++ prefix ++ "lex_destroy(scanner);"
+    , "}"
+    ]
+    where
+        name = case inPackage opts of
+            Nothing -> "Scanner"
+            Just ns -> ns ++ "Scanner"
+        prefix = fromMaybe "yy" (inPackage opts)
