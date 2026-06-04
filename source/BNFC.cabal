@@ -253,6 +253,7 @@ library
     BNFC.Backend.CPPVar.FlexGen
     BNFC.Backend.CPPVar.FlexRegex
     BNFC.Backend.CPPVar.BisonGen
+    BNFC.Backend.CPPVar.PatternMatchingGen
     BNFC.Backend.CPPVar.CPPUtil
 
     -- Java backend
