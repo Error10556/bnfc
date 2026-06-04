@@ -12,6 +12,7 @@ import qualified BNFC.Backend.CPPVar.CPPUtil as CPPUtil
 import BNFC.Backend.CPPVar.AbsynGen
 import BNFC.Backend.CPPVar.FlexGen
 import BNFC.Backend.CPPVar.BisonGen
+import BNFC.Backend.CPPVar.PatternMatchingGen
 import qualified BNFC.Backend.C as BackendC (comment)
 
 makeCppVar :: SharedOptions -> CF -> MkFiles ()
@@ -26,3 +27,4 @@ makeCppVar opts cf = do
     mkfile absynCppFilename BackendC.comment absynCpp
     mkfile (flexFilename opts) BackendC.comment flexFile
     mkfile (bisonFilename opts) BackendC.comment bisonFile
+    mkfile patternMatchingFilename BackendC.comment patternMatchingHpp
