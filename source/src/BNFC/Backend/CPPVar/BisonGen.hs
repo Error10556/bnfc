@@ -3,6 +3,7 @@ module BNFC.Backend.CPPVar.BisonGen (bisonFilename, makeBison) where
 
 import qualified BNFC.Options
 import qualified BNFC.CF
+import BNFC.Backend.CPPVar.FlexGen (scannerDecl)
 import qualified Data.Map
 import Text.PrettyPrint
 import BNFC.Backend.CPPVar.CPPUtil
@@ -26,7 +27,7 @@ makeBison opts cf implicitTokenNames groupedRules =
     $++$ vcatSpaced (map (uncurry $ category implicitTokenNames)
             $ Data.Map.toList groupedRules)
     $++$ text "%%"
-    -- ...
+    $++$ codeSection opts entrypoints
     where
         utils = newBisonUtils opts
         entrypoints = extractEntrypoints cf groupedRules
@@ -218,3 +219,74 @@ category implicitTokenNames cat rules = case cat of
                 Just name -> name))
         rhsObjectIndices :: BNFC.CF.SentForm -> [Int]
         rhsObjectIndices rhs = [i | (Left _, i) <- zip rhs [1..]]
+
+codeSection :: BNFC.Options.SharedOptions -> [BNFC.CF.Cat] -> Doc
+codeSection opts entrypoints =
+    text "#include \"PatternMatching.hpp\""
+    $++$ maybeWrapNamespace
+        (scannerDecl opts
+        $++$ linesToText
+    [ "void Parser::error(const std::string& msg) {"
+    , "    *result = {{syntax_error(msg)}};"
+    , "}"
+    , ""
+    , "static ParseResultOrError Parse(const " ++ scannerName
+        ++ "& scanner) {"
+    , "    std::optional<ParseResultOrError> res;"
+    , "    Parser parser(scanner.FlexScanner(), &res);"
+    , "    parser.parse();"
+    , "    if (!res) return {Parser::syntax_error(\"\")};"
+    , "    return *res;"
+    , "}"
+    , ""
+    , "ParseResultOrError Parse(FILE* file) {"
+    , "    return Parse(" ++ scannerName ++ "(file));"
+    , "}"
+    , ""
+    , "ParseResultOrError Parse(std::string_view str) {"
+    , "    return Parse(" ++ scannerName ++ "(str));"
+    , "}"
+    , ""
+    , "template <class T>"
+    , "static std::variant<T, Parser::syntax_error>"
+    , "EnsureParsedType(ParseResultOrError&& parsed) {"
+    , "    using RetType = std::variant<T, Parser::syntax_error>;"
+    , "    return std::move(parsed) | PatternMatch{"
+    , "        [](Parser::syntax_error&& err) -> RetType {"
+    , "            return std::move(err);"
+    , "        },"
+    , "        [](ParseResultVariant&& var) -> RetType {"
+    , "            return std::move(var) | PatternMatch{"
+    , "                [](T&& target) -> RetType { return std::move(target); },"
+    , "                [](auto&& node) -> RetType {"
+    , "                    using gotType = std::decay_t<decltype(node)>;"
+    , "                    std::string msg = " ++
+                                "\"Unexpected syntax: tried to parse \";"
+    , "                    msg.append(reflection::SyntaxNodeName<T>)"
+    , "                        .append(\", but got \")"
+    , "                        .append(reflection::SyntaxNodeName<gotType>);"
+    , "                    return Parser::syntax_error(msg);"
+    , "                }"
+    , "            };"
+    , "        }"
+    , "    };"
+    , "}"
+    ] $++$ vcatSpaced (map (entrypointImpl . catNameNoCoerc) entrypoints)
+        )
+    where
+        maybeWrapNamespace = maybe id wrapNamespace
+            $ BNFC.Options.inPackage opts
+        scannerName = case BNFC.Options.inPackage opts of
+            Nothing -> "Scanner"
+            Just ns -> ns ++ "Scanner"
+        entrypointImpl name = linesToText
+            [ "std::variant<" ++ name ++
+                ", Parser::syntax_error> Parse" ++ name ++ "(FILE* file) {"
+            , "    return EnsureParsedType<" ++ name ++ ">(Parse(file));"
+            , "}"
+            , ""
+            , "std::variant<" ++ name ++ ", Parser::syntax_error> Parse"
+                ++ name ++ "(std::string_view str) {"
+            , "    return EnsureParsedType<" ++ name ++ ">(Parse(str));"
+            , "}"
+            ]
