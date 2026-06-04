@@ -197,7 +197,7 @@ category implicitTokenNames cat rules = case cat of
                 , show $ case rhsObjectIndices rhs of
                     [i] -> i
                     _ -> error "Coercion object count /= 1"
-                , ")}; }"
+                , "); }"
                 ]
         emplacementRule name rhs = concat
             [ "/* "
@@ -213,7 +213,15 @@ category implicitTokenNames cat rules = case cat of
             ]
         sentFormToBison :: BNFC.CF.SentForm -> String
         sentFormToBison = unwords . map (\case
-            Left cat -> catNameWithCoerc cat
+            Left cat -> case cat of
+                BNFC.CF.TokenCat tokenName ->
+                    if tokenName == BNFC.CF.catIdent then "IDENT" else
+                    -- if tokenName == BNFC.CF.catString then "STRING" else
+                    -- if tokenName == BNFC.CF.catChar then "CHAR" else
+                    -- if tokenName == BNFC.CF.catDouble then "DOUBLE" else
+                    -- if tokenName == BNFC.CF.catInteger then "INTEGER" else
+                    error "Unsupported literal token: " ++ tokenName
+                _ -> catNameWithCoerc cat
             Right s -> (case s `Data.Map.lookup` implicitTokenNames of
                 Nothing -> error "string token not named"
                 Just name -> name))
