@@ -15,6 +15,7 @@ import BNFC.CF
 import qualified BNFC.Options
 import qualified Data.Map
 import Text.PrettyPrint (Doc, ($+$), text, isEmpty, empty)
+import Data.Char
 
 -- Concats vertically with an empty line between docs
 ($++$) :: Doc -> Doc -> Doc
@@ -69,16 +70,24 @@ mergeCoercCats = Data.Map.fromListWith (++) . map normPair . Data.Map.toList
     where
         normPair (k, v) = (normCat k, v)
 
+normalizeCPPName :: String -> String
+normalizeCPPName =
+    (\case [] -> "_"; s@(ch:_) -> if isAlpha_ ch then s else '_' : s)
+    . map (\ch -> if isAlnum ch then ch else '_')
+    where
+        isAlpha_ ch = isAsciiLower ch || isAsciiUpper ch || ch == '_'
+        isAlnum ch = isAlpha_ ch || isDigit ch
+
 catNameNoCoerc :: Cat -> String
 catNameNoCoerc = \case
-    CoercCat w _ -> w
+    CoercCat w _ -> normalizeCPPName w
     ListCat c -> "List" ++ catNameNoCoerc c
     TokenCat w -> w
-    Cat w -> w
+    Cat w -> normalizeCPPName w
 
 catNameWithCoerc :: Cat -> String
 catNameWithCoerc = \case
-    CoercCat w n -> w ++ show n
+    CoercCat w n -> normalizeCPPName w ++ show n
     ListCat c -> "List" ++ catNameNoCoerc c  -- NoCoerc for lists
     TokenCat w -> w
-    Cat w -> w ++ "0"
+    Cat w -> normalizeCPPName w ++ "0"
