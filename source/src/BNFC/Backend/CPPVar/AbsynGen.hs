@@ -7,8 +7,7 @@ import BNFC.Options
 import Text.PrettyPrint (Doc, text, ($+$), empty, nest)
 import BNFC.Backend.CPPVar.CPPUtil
 import qualified Data.Map
-import qualified Data.Set
-import Data.List (intercalate, sort)
+import Data.List (intercalate)
 
 absynHppFilename :: String
 absynHppFilename = "Absyn.hpp"

@@ -74,3 +74,10 @@ getPrintableSymbols cf rulemap = literals ++ nonliterals
         parseCons sentForm =
             let ([c1, c2], [ss1, ss2, ss3]) = parseSentForm 2 sentForm
             in (ss1, c1, ss2, c2, ss3)
+
+printableClassName :: PrintableSymbol -> String
+printableClassName = \case
+    NormalCategory s -> s
+    ListCategory {printListName=s} -> s
+    FunctionRule r -> funName r
+    Ident -> catIdent
