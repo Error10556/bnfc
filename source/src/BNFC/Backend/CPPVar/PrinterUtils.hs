@@ -8,7 +8,8 @@ import Data.Map hiding (map, foldr, filter)
 data PrintableSymbol
     = NormalCategory String
     | ListCategory
-        { printListEmpty :: Maybe [String]
+        { printListName :: String
+        , printListEmpty :: Maybe [String]
         , printListCons :: Maybe ([String], Cat, [String], Cat, [String])
         , printListSingle :: Maybe ([String], Cat, [String])
         }
@@ -28,8 +29,9 @@ getPrintableSymbols cf rulemap = literals ++ nonliterals
             $ cfgLiterals cf
         nonliterals = concat
             $ flip map (toList (mergeCoercCats rulemap)) $ \case
-            (ListCat _, rules) -> [ListCategory
-                { printListEmpty = parseEmptyList <$> lookup "[]" mapRules
+            (cat@(ListCat _), rules) -> [ListCategory
+                { printListName = catNameNoCoerc cat
+                , printListEmpty = parseEmptyList <$> lookup "[]" mapRules
                 , printListCons = parseCons <$> lookup "(:)" mapRules
                 , printListSingle = parseSingleton <$> lookup "(:[])" mapRules
                 }]
