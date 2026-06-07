@@ -14,6 +14,7 @@ import BNFC.Backend.CPPVar.FlexGen
 import BNFC.Backend.CPPVar.BisonGen
 import BNFC.Backend.CPPVar.PatternMatchingGen
 import BNFC.Backend.CPPVar.SyntaxPrinterGen
+import BNFC.Backend.CPPVar.TestGen
 import qualified BNFC.Backend.C as BackendC (comment)
 
 makeCppVar :: SharedOptions -> CF -> MkFiles ()
@@ -32,3 +33,4 @@ makeCppVar opts cf = do
     mkfile patternMatchingFilename BackendC.comment patternMatchingHpp
     mkfile syntaxPrinterHppFilename BackendC.comment syntaxHpp
     mkfile syntaxPrinterCppFilename BackendC.comment syntaxCpp
+    mkfile testFilename BackendC.comment makeTest

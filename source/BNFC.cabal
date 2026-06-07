@@ -256,6 +256,7 @@ library
     BNFC.Backend.CPPVar.PatternMatchingGen
     BNFC.Backend.CPPVar.PrinterUtils
     BNFC.Backend.CPPVar.SyntaxPrinterGen
+    BNFC.Backend.CPPVar.TestGen
     BNFC.Backend.CPPVar.CPPUtil
 
     -- Java backend
