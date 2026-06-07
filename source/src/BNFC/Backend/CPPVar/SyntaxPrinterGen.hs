@@ -15,11 +15,13 @@ syntaxPrinterCppFilename :: String
 syntaxPrinterCppFilename = "SyntaxPrinter.cpp"
 
 -- | -> (hpp, cpp)
-makeSyntaxPrinter :: BNFC.Options.SharedOptions -> BNFC.CF.CF -> (Doc, Doc)
+makeSyntaxPrinter :: BNFC.Options.SharedOptions -> BNFC.CF.CF
+    -> GroupedRules -> (Doc, Doc)
 makeSyntaxPrinter opts cf = (hpp, cpp)
     where
         hpp = linesToText
-            [ "#include <iostream>"
+            [ "#pragma once"
+            , "#include <iostream>"
             , "#include <string_view>"
             , "#include \"Absyn.hpp\""
             ] $++$ packwrap
@@ -27,3 +29,7 @@ makeSyntaxPrinter opts cf = (hpp, cpp)
 
         cpp = empty
         packwrap = wrapPackage opts
+
+-- | -> (declaration, methods)
+printerClass :: BNFC.CF.CF -> GroupedRules -> (Doc, Doc)
+

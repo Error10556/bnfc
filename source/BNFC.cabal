@@ -254,6 +254,7 @@ library
     BNFC.Backend.CPPVar.FlexRegex
     BNFC.Backend.CPPVar.BisonGen
     BNFC.Backend.CPPVar.PatternMatchingGen
+    BNFC.Backend.CPPVar.PrinterUtils
     BNFC.Backend.CPPVar.SyntaxPrinterGen
     BNFC.Backend.CPPVar.CPPUtil
 
