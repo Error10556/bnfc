@@ -8,7 +8,8 @@ module BNFC.Backend.CPPVar.CPPUtil
     , catNameNoCoerc
     , catNameWithCoerc
     , mergeCoercCats
-    , GroupedRules) where
+    , GroupedRules
+    , fieldNames) where
 
 import Prelude hiding ((<>))
 import BNFC.CF
@@ -16,6 +17,8 @@ import qualified BNFC.Options
 import qualified Data.Map
 import Text.PrettyPrint (Doc, ($+$), text, isEmpty, empty)
 import Data.Char
+import qualified Data.Set
+import Data.List
 
 -- Concats vertically with an empty line between docs
 ($++$) :: Doc -> Doc -> Doc
@@ -91,3 +94,37 @@ catNameWithCoerc = \case
     ListCat c -> "List" ++ catNameNoCoerc c  -- NoCoerc for lists
     TokenCat w -> w
     Cat w -> normalizeCPPName w ++ "0"
+
+fieldNames :: SentForm -> [(String, Cat)]
+fieldNames sentForm = let
+        members = [normCat cat | (Left cat) <- sentForm]
+        unindexedNames = map ((++"_") . catNameNoCoerc) members
+        indexedNames = indexNames' unindexedNames
+    in
+        zip indexedNames members
+    where
+        indexNames' names =
+            help names Data.Map.empty
+            where
+                nonuniq = Data.Set.fromList $ nonunique names
+                help :: [String] -> Data.Map.Map String Int -> [String]
+                help [] _ = []
+                help (name:tail) prevs = if name `elem` nonuniq
+                    then
+                        let curindex = maybe 1 (+1) (Data.Map.lookup name prevs)
+                        in (name ++ show curindex) :
+                            help tail (Data.Map.insert name curindex prevs)
+                    else name : help tail prevs
+
+nonunique :: (Ord a, Eq a) => [a] -> [a]
+nonunique lst = case sort lst of
+    [] -> []
+    a:tail -> help True a tail
+    where
+        help enabled prev tail = case tail of
+            [] -> []
+            x:tail' -> if prev == x
+                then (if enabled
+                    then x : help False x tail'
+                    else help False x tail')
+                else help True x tail'

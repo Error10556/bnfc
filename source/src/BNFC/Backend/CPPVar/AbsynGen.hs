@@ -212,10 +212,8 @@ rules cf = (vcatSpaced headers, vcatSpaced refls, vcatSpaced impls)
 rule :: Rule -> (Doc, Doc, Doc)
 rule r =
     let name = funName r
-        members = members' r
+        (indexedNames, members) = unzip $ fieldNames $ rhsRule r
         storageTypes = map storageType' members
-        unindexedNames = map ((++"_") . catNameNoCoerc) members
-        indexedNames = indexNames' unindexedNames
         constructorSignatureOrEmpty
             | null members = empty
             | otherwise = text $ name ++ "("
@@ -282,8 +280,6 @@ rule r =
 
     in (headerClass, headerRefls, impl)
     where
-        members' :: Rule -> [Cat]
-        members' rule = [normCat cat | (Left cat) <- rhsRule rule]
         storageType' :: Cat -> String
         storageType' = \case
             lst@(ListCat _) -> catNameNoCoerc lst
@@ -294,28 +290,3 @@ rule r =
             CoercCat _ _ -> True
             Cat _ -> True
             _ -> False
-        indexNames' names =
-            help names Data.Map.empty
-            where
-                nonuniq = Data.Set.fromList $ nonunique names
-                help :: [String] -> Data.Map.Map String Int -> [String]
-                help [] _ = []
-                help (name:tail) prevs = if name `elem` nonuniq
-                    then
-                        let curindex = maybe 1 (+1) (Data.Map.lookup name prevs)
-                        in (name ++ show curindex) :
-                            help tail (Data.Map.insert name curindex prevs)
-                    else name : help tail prevs
-
-nonunique :: (Ord a, Eq a) => [a] -> [a]
-nonunique lst = case sort lst of
-    [] -> []
-    a:tail -> help True a tail
-    where
-        help enabled prev tail = case tail of
-            [] -> []
-            x:tail' -> if prev == x
-                then (if enabled
-                    then x : help False x tail'
-                    else help False x tail')
-                else help True x tail'
