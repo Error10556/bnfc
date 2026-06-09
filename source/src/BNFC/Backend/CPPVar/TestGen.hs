@@ -1,15 +1,16 @@
-{-# LANGUAGE MultilineStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module BNFC.Backend.CPPVar.TestGen (testFilename, makeTest) where
 
 import BNFC.Backend.CPPVar.CPPUtil
 import Text.PrettyPrint
+import Data.String.QQ
 
 testFilename :: String
 testFilename = "Test.cpp"
 
 makeTest :: Doc
-makeTest = linesToText $ lines """
+makeTest = linesToText $ lines [s|
 #include <cstring>
 #include <vector>
 
@@ -129,4 +130,4 @@ Options:
         if (needclose) fclose(file);
     }
 }
-"""
+|]

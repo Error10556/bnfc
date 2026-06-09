@@ -1,16 +1,17 @@
-{-# LANGUAGE MultilineStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module BNFC.Backend.CPPVar.PatternMatchingGen
     (patternMatchingFilename, patternMatchingHpp) where
 
 import BNFC.Backend.CPPVar.CPPUtil
 import Text.PrettyPrint
+import Data.String.QQ
 
 patternMatchingFilename :: String
 patternMatchingFilename = "PatternMatching.hpp"
 
 patternMatchingHpp :: Doc
-patternMatchingHpp = linesToText $ lines """
+patternMatchingHpp = linesToText $ lines [s|
 /************************** Pattern Matching for C++ ***************************
 * You are highly encouraged to include this file to enable the following syntax:
 
@@ -104,4 +105,4 @@ decltype(auto) operator|(std::tuple<TVariant...>&& vars, TMatcher&& vis) {
         },
         std::move(vars));
 }
-"""
+|]
