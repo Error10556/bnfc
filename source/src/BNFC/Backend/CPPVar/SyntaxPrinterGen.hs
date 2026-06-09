@@ -16,9 +16,9 @@ syntaxPrinterCppFilename :: String
 syntaxPrinterCppFilename = "SyntaxPrinter.cpp"
 
 -- | -> (hpp, cpp)
-makeSyntaxPrinter :: BNFC.Options.SharedOptions -> BNFC.CF.CF
-    -> GroupedRules -> (Doc, Doc)
-makeSyntaxPrinter opts cf groupedRules = (hpp, cpp)
+makeSyntaxPrinter :: BNFC.Options.SharedOptions -> [PrintableSymbol]
+    -> (Doc, Doc)
+makeSyntaxPrinter opts printable = (hpp, cpp)
     where
         hpp = linesToText
             [ "#pragma once"
@@ -29,7 +29,6 @@ makeSyntaxPrinter opts cf groupedRules = (hpp, cpp)
         cpp = text "#include \"SyntaxPrinter.hpp\""
             $++$ packwrap (printerImpl printable)
         packwrap = wrapPackage opts
-        printable = getPrintableSymbols cf groupedRules
 
 printerClassDecl :: [PrintableSymbol] -> Doc
 printerClassDecl symbols = linesToText
