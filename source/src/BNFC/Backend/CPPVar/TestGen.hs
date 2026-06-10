@@ -15,7 +15,7 @@ makeTest = linesToText $ lines [s|
 #include <vector>
 
 #include "Absyn.hpp"
-//#include "PrettyPrinter.hpp"
+#include "PrettyPrinter.hpp"
 #include "SyntaxPrinter.hpp"
 #include "grammar.tab.hpp"
 #include "PatternMatching.hpp"
@@ -81,8 +81,8 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (help) {
-        cerr << "Sample syntax parser.\\nUsage: \\n"
-             << argv[0] << " (OPTION|FILE)... [-- FILE...]\\n";
+        cerr << "Sample syntax parser.\nUsage: \n"
+             << argv[0] << " (OPTION|FILE)... [-- FILE...]\n";
         cerr << R"%(
 Options:
   -h --help    Display this message
@@ -106,24 +106,23 @@ Options:
             }
             needclose = true;
         }
-        cout << filename << '\\n';
+        cout << filename << '\n';
 
         LC::ParseProgram(file) | PatternMatch{
             [&](LC::Parser::syntax_error&& err) {
-                cout << "Could not parse!\\nError: " << err.what() << "\\n\\n";
+                cout << "Could not parse!\nError: " << err.what() << "\n\n";
                 return;
             },
             [&](LC::Program&& p) {
                 if (tree) {
                     p | LC::SyntaxPrinter(cout);
-                    cout << '\\n';
+                    cout << '\n';
                 }
                 if (pretty) {
-                    //p | LC::PrettyPrinter(cout);
-                    cout << "PrettyPrinting is not implemented";
-                    cout << "\\n\\n";
+                    p | LC::PrettyPrinter(cout);
+                    cout << "\n\n";
                 }
-                if (!tree && !pretty) cout << "OK\\n\\n";
+                if (!tree && !pretty) cout << "OK\n\n";
             }
         };
 

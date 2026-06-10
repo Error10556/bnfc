@@ -9,6 +9,7 @@ data PrintableSymbol
     = NormalCategory String
     | ListCategory
         { printListName :: String
+        , printListItemCoerc :: Integer
         , printListEmpty :: Maybe [String]
         , printListCons :: Maybe ([String], Cat, [String], Cat, [String])
         , printListSingle :: Maybe ([String], Cat, [String])
@@ -29,8 +30,9 @@ getPrintableSymbols cf rulemap = literals ++ nonliterals
             $ cfgLiterals cf
         nonliterals = concat
             $ flip map (toList (mergeCoercCats rulemap)) $ \case
-            (cat@(ListCat _), rules) -> [ListCategory
+            (cat@(ListCat itemcat), rules) -> [ListCategory
                 { printListName = catNameNoCoerc cat
+                , printListItemCoerc = case itemcat of CoercCat _ i -> i; _ -> 0
                 , printListEmpty = parseEmptyList <$> lookup "[]" mapRules
                 , printListCons = parseCons <$> lookup "(:)" mapRules
                 , printListSingle = parseSingleton <$> lookup "(:[])" mapRules
