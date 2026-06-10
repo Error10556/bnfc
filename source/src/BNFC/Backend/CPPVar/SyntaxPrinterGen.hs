@@ -8,7 +8,6 @@ import qualified BNFC.CF
 import qualified BNFC.Options
 import Text.PrettyPrint
 import BNFC.Backend.CPPVar.PrinterUtils
-import Data.List
 
 syntaxPrinterHppFilename :: String
 syntaxPrinterHppFilename = "SyntaxPrinter.hpp"
@@ -129,7 +128,7 @@ printerImpl symbols = linesToText
             FunctionRule r -> linesToText
                 [ "PrintIndentForHeader();"
                 , "out << \"" ++ BNFC.CF.funName r ++ "\\n\";"
-                ] $+$ case unsnoc (fieldNames $ BNFC.CF.rhsRule r) of
+                ] $+$ case myUnsnoc (fieldNames $ BNFC.CF.rhsRule r) of
                     Nothing -> empty
                     Just (nonlasts, (lastName, lastCat)) -> (case nonlasts of
                         [] -> empty
@@ -147,3 +146,9 @@ printerImpl symbols = linesToText
                         BNFC.CF.Cat _ -> True
                         BNFC.CF.CoercCat _ _ -> True
                         _ -> False
+                    myUnsnoc :: [a] -> Maybe ([a], a)
+                    myUnsnoc = \case
+                        [] -> Nothing
+                        item:tail -> case myUnsnoc tail of
+                            Nothing -> Just ([], item)
+                            Just (init, last) -> Just (item:init, last)
