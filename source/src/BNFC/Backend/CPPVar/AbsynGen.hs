@@ -254,7 +254,7 @@ rule r =
             (name ++ "::" ++ name ++ "(const " ++ name ++ "& other)")
             $+$ ctorInitializers
                 [name ++ "(" ++ cloneValue cat ("other." ++ name) ++ ")"
-                | (name, cat) <- zip indexedNames members] <> " {}"
+                | (name, cat) <- zip indexedNames members] <> text " {}"
         copyAsg = text (name ++ "& " ++ name
                          ++ "::operator=(const " ++ name ++ "& other) {")
             $+$ nest 4 (linesToText (
@@ -269,7 +269,7 @@ rule r =
                 $+$ ctorInitializers
                     [name ++ "(" ++ moveValue cat ('_' : show i) ++ ")"
                     | (name, cat, i :: Int) <- zip3 indexedNames members [1..]]
-                <> " {}"
+                <> text " {}"
         impl = vcatSpaced
             [ text $ "// " ++ name
             , copyCtor
