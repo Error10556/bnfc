@@ -37,4 +37,6 @@ makeCppVar opts cf = do
     mkfile patternMatchingFilename BackendC.comment patternMatchingHpp
     mkfile syntaxPrinterHppFilename BackendC.comment syntaxHpp
     mkfile syntaxPrinterCppFilename BackendC.comment syntaxCpp
+    mkfile prettyPrinterHppFilename BackendC.comment prettyHpp
+    mkfile prettyPrinterCppFilename BackendC.comment prettyCpp
     mkfile testFilename BackendC.comment makeTest
