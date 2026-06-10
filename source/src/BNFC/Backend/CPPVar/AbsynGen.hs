@@ -4,7 +4,7 @@ module BNFC.Backend.CPPVar.AbsynGen
 --import BNFC.Utils
 import BNFC.CF
 import BNFC.Options
-import Text.PrettyPrint (Doc, text, ($+$), empty, nest)
+import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>))
 import BNFC.Backend.CPPVar.CPPUtil
 import qualified Data.Map
 import Data.List (intercalate)
