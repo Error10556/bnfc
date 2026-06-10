@@ -1,9 +1,10 @@
 {- HLINT ignore "Use zipWith" -}
 module BNFC.Backend.CPPVar.FlexGen (flexFilename, makeFlex, scannerDecl) where
 
+import Prelude hiding ((<>))
 import BNFC.CF
 import BNFC.Options
-import Text.PrettyPrint (Doc, text, ($+$), empty)
+import Text.PrettyPrint (Doc, text, ($+$), empty, (<>))
 import BNFC.PrettyPrint (Pretty(..))
 import BNFC.Backend.CPPVar.FlexRegex as FReg
 import BNFC.Backend.CPPVar.CPPUtil
@@ -21,7 +22,7 @@ makeFlex opts cf = (flexHead opts
     $++$ bcommConditions
     $++$ text "%%"
     $++$ bcommRules $++$ oneLineComments cf
-    -- $++$ defined token rules
+    -- token rules here
     $++$ defImplicitTokens opts tkNames
     $++$ defString opts cf
     $+$ defDouble opts cf
@@ -154,10 +155,10 @@ commentBlocks cf =
                 <> pretty endhead
                 <> text "]+ ;"
             $+$ case endregex of
-                -- | multibyte/multicharacter ending => handle endhead
+                -- multibyte/multicharacter ending => handle endhead
                 FReg.Concat _ _ -> text ("<COMMENT" ++ istr ++ ">")
                     <> pretty endhead <> text " ;"
-                -- | singlebyte ending
+                -- singlebyte ending
                 _ -> empty
             where
                 istr = show i
