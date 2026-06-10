@@ -1,7 +1,7 @@
 module BNFC.Backend.CPPVar.AbsynGen
     (makeAbsyn, absynHppFilename, absynCppFilename) where
 
---import BNFC.Utils
+import Prelude hiding ((<>))
 import BNFC.CF
 import BNFC.Options
 import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>))
