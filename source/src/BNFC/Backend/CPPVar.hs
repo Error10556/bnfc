@@ -17,7 +17,9 @@ import BNFC.Backend.CPPVar.PrinterUtils
 import BNFC.Backend.CPPVar.SyntaxPrinterGen
 import BNFC.Backend.CPPVar.PrettyPrinterGen
 import BNFC.Backend.CPPVar.TestGen
-import qualified BNFC.Backend.C as BackendC (comment)
+
+comment :: String -> String
+comment = ("/* "++) . (++" */")
 
 makeCppVar :: SharedOptions -> CF -> MkFiles ()
 makeCppVar opts cf = do
@@ -30,13 +32,13 @@ makeCppVar opts cf = do
         printables = getPrintableSymbols cf groupedRules
         (syntaxHpp, syntaxCpp) = makeSyntaxPrinter opts printables
         (prettyHpp, prettyCpp) = makePrettyPrinter opts printables
-    mkfile absynHppFilename BackendC.comment absynHpp
-    mkfile absynCppFilename BackendC.comment absynCpp
-    mkfile (flexFilename opts) BackendC.comment flexFile
-    mkfile (bisonFilename opts) BackendC.comment bisonFile
-    mkfile patternMatchingFilename BackendC.comment patternMatchingHpp
-    mkfile syntaxPrinterHppFilename BackendC.comment syntaxHpp
-    mkfile syntaxPrinterCppFilename BackendC.comment syntaxCpp
-    mkfile prettyPrinterHppFilename BackendC.comment prettyHpp
-    mkfile prettyPrinterCppFilename BackendC.comment prettyCpp
-    mkfile testFilename BackendC.comment makeTest
+    mkfile absynHppFilename comment absynHpp
+    mkfile absynCppFilename comment absynCpp
+    mkfile (flexFilename opts) comment flexFile
+    mkfile (bisonFilename opts) comment bisonFile
+    mkfile patternMatchingFilename comment patternMatchingHpp
+    mkfile syntaxPrinterHppFilename comment syntaxHpp
+    mkfile syntaxPrinterCppFilename comment syntaxCpp
+    mkfile prettyPrinterHppFilename comment prettyHpp
+    mkfile prettyPrinterCppFilename comment prettyCpp
+    mkfile testFilename comment makeTest
