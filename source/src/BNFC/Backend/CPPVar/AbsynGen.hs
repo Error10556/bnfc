@@ -188,8 +188,8 @@ headerCats groupedRules = (vcatSpaced defs, vcatSpaced refls)
             let name = catNameNoCoerc cat
             in  case cat of
                 ListCat elemCat ->
-                    ( text $ "using " ++ name ++ " = std::deque<"
-                        ++ catNameNoCoerc elemCat ++ ">;"
+                    ( text $ "struct " ++ name ++ " : public std::deque<"
+                        ++ catNameNoCoerc elemCat ++ "> {};"
                     , rawCoercionSpec name 0 $+$ rawNodeNameSpec name
                     )
                 _ ->

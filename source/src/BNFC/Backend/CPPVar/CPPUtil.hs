@@ -45,33 +45,24 @@ linesToText = foldr ($+$) empty . map text
 
 type GroupedRules = Data.Map.Map Cat [Rule]
 
--- | Returns an error (Left msg) if a category is a list with a precedence
-groupRules :: CF -> Either String GroupedRules
-groupRules = foldr add (Right Data.Map.empty) . cfgRules
+groupRules :: CF -> GroupedRules
+groupRules = foldr add Data.Map.empty . cfgRules
     where
-        add :: Rule -> Either String (Data.Map.Map Cat [Rule])
-            -> Either String (Data.Map.Map Cat [Rule])
+        add :: Rule -> Data.Map.Map Cat [Rule] -> Data.Map.Map Cat [Rule]
         add rule =
             let rcat = valRCat rule
                 cat = wpThing rcat
-                containsCoerc = \case
-                    CoercCat _ _ -> True
-                    ListCat c -> containsCoerc c
-                    _ -> False
-                isListAndContainsCoerc = \case
-                    ListCat c -> containsCoerc c
-                    _ -> False
-            in if isListAndContainsCoerc cat
-               then const $ Left $
-                    "Lists with precedences are unsupported (category "
-                    ++ catToStr cat ++ ")"
-               else fmap (Data.Map.insertWith (++) cat [rule])
+            in Data.Map.insertWith (++) cat [rule]
 
 -- | turns all KEY (CoercCat w _) into (Cat w)
 mergeCoercCats :: Data.Map.Map Cat [Rule] -> Data.Map.Map Cat [Rule]
 mergeCoercCats = Data.Map.fromListWith (++) . map normPair . Data.Map.toList
     where
-        normPair (k, v) = (normCat k, v)
+        normPair (k, v) = (normCatNoList k, v)
+        -- | Does NOT normalize away list items, e.g. [Expr1] -/-> [Expr]
+        normCatNoList = \case
+            CoercCat s _ -> Cat s
+            other -> other
 
 normalizeCPPName :: String -> String
 normalizeCPPName =
@@ -84,16 +75,17 @@ normalizeCPPName =
 catNameNoCoerc :: Cat -> String
 catNameNoCoerc = \case
     CoercCat w _ -> normalizeCPPName w
-    ListCat c -> "List" ++ catNameNoCoerc c
+    -- Lists of different coercions are different, so distinguish by name
+    ListCat c -> "List" ++ catNameWithCoerc c
     TokenCat w -> w
     Cat w -> normalizeCPPName w
 
 catNameWithCoerc :: Cat -> String
 catNameWithCoerc = \case
-    CoercCat w n -> normalizeCPPName w ++ show n
-    ListCat c -> "List" ++ catNameNoCoerc c  -- NoCoerc for lists
+    CoercCat w n -> normalizeCPPName w ++ if n == 0 then "" else show n
+    ListCat c -> "List" ++ catNameWithCoerc c
     TokenCat w -> w
-    Cat w -> normalizeCPPName w ++ "0"
+    Cat w -> normalizeCPPName w
 
 fieldNames :: SentForm -> [(String, Cat)]
 fieldNames sentForm = let

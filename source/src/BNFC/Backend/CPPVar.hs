@@ -23,9 +23,7 @@ comment = ("/* "++) . (++" */")
 
 makeCppVar :: SharedOptions -> CF -> MkFiles ()
 makeCppVar opts cf = do
-    let groupedRules = case CPPUtil.groupRules cf of
-            Left msg -> error msg
-            Right val -> val
+    let groupedRules = CPPUtil.groupRules cf
         (absynHpp, absynCpp) = makeAbsyn opts cf groupedRules
         (flexFile, implicitTokenNames) = makeFlex opts cf
         bisonFile = makeBison opts cf implicitTokenNames groupedRules
