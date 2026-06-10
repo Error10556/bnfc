@@ -259,32 +259,32 @@ fromMinusRegex = \case
     Minus.Lambda -> Empty
     Minus.Phi -> byteset ""
     Minus.Rep r -> case fromMinusRegex r of
-            Empty -> Empty  -- ^ (9)
-            bs@(Byteset set) -> if null set then bs else Star bs  -- ^ (10)
+            Empty -> Empty  -- (9)
+            bs@(Byteset set) -> if null set then bs else Star bs  -- (10)
             other -> Star other
     or@(Minus.Or _ _) -> let
-            regexSet = makeRegexSetFromOr or  -- ^ (7)
+            regexSet = makeRegexSetFromOr or  -- (7)
             (bytesets, nonbytesets) = partitionEithers . map
                 (\case
                     Byteset set -> Left set
                     Onebyte b -> Left (Data.Set.singleton b)
                     other -> Right other) $
                 Data.Set.toList regexSet
-            onebyteset = Data.Set.unions bytesets  -- ^ (2) (8)
+            onebyteset = Data.Set.unions bytesets  -- (2) (8)
             unifiedRegexes = if null onebyteset then nonbytesets
                 else Byteset onebyteset : nonbytesets
-        -- | Empty `elem` unifiedRegexes iff it is an `elem` of regexSet
+        -- (Empty `elem` unifiedRegexes) iff it is an `elem` of regexSet
         in if Empty `elem` regexSet
-            then Optional . flexOr . delete Empty $ unifiedRegexes  -- ^ (3)
+            then Optional . flexOr . delete Empty $ unifiedRegexes  -- (3)
             else flexOr unifiedRegexes
     minus@(Minus.Sub _ _) -> fromMinusRegex $ Minus.removeMinuses minus
     seq@(Minus.Seq _ _) -> let
-            regexList = makeRegexListFromSeq seq  -- ^ (4)
+            regexList = makeRegexListFromSeq seq  -- (4)
             -- | (5)
             listNoEmpty = filter (\case Empty -> False; _ -> True) regexList
             emptyset = byteset ""
-        in if emptyset `elem` listNoEmpty then emptyset  -- ^ (6)
-            else flexConcat $ foldr foldStar2Plus [] listNoEmpty -- ^ (1)
+        in if emptyset `elem` listNoEmpty then emptyset  -- (6)
+            else flexConcat $ foldr foldStar2Plus [] listNoEmpty -- (1)
     where
         makeRegexSetFromOr = \case
             Minus.Or a b -> Data.Set.union
