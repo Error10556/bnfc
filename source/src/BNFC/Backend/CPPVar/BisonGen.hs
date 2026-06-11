@@ -5,6 +5,7 @@ import qualified BNFC.Options
 import qualified BNFC.CF
 import BNFC.Backend.CPPVar.FlexGen (scannerDecl)
 import qualified Data.Map
+import qualified Data.Set
 import Text.PrettyPrint
 import BNFC.Backend.CPPVar.CPPUtil
 import Data.List (intercalate)
@@ -17,7 +18,7 @@ makeBison :: BNFC.Options.SharedOptions -> BNFC.CF.CF
 makeBison opts cf implicitTokenNames groupedRules =
     bisonHeader opts
     $++$ tokenDefs implicitTokenNames cf
-    $++$ codeRequires utils
+    $++$ codeRequires utils entrypoints
     $++$ nonterms groupedRules
     $++$ codeProvides utils entrypoints
     $++$ codeLex utils
@@ -33,10 +34,14 @@ makeBison opts cf implicitTokenNames groupedRules =
         entrypoints = extractEntrypoints cf groupedRules
 
 extractEntrypoints :: BNFC.CF.CF -> GroupedRules -> [BNFC.CF.Cat]
-extractEntrypoints cf grouped = if null res then Data.Map.keys grouped else res
+extractEntrypoints cf grouped = merge
+    $ if null res then Data.Map.keys grouped else res
     where
         res = concat [map BNFC.CF.wpThing cats
             | BNFC.CF.EntryPoints cats <- BNFC.CF.cfgPragmas cf]
+        merge = Data.Set.toList . Data.Set.fromList . map (\case
+            BNFC.CF.CoercCat s _ -> BNFC.CF.Cat s
+            other -> other)
 
 bisonHeader :: BNFC.Options.SharedOptions -> Doc
 bisonHeader opts = linesToText
@@ -52,7 +57,8 @@ bisonHeader opts = linesToText
     $+$ linesToText
     [ "%lex-param {yyscan_t scanner}"
     , "%parse-param {yyscan_t scanner}"
-    , "%parse-param {std::optional<std::variant<ParseResultVariant, syntax_error>>* result}"
+    , "%parse-param {std::optional<std::variant<ParseResultVariant, "
+        ++ "syntax_error>>* result}"
     , "%header \"" ++ BNFC.Options.lang opts ++ ".tab.hpp\""
     ]
 
@@ -84,15 +90,18 @@ tokenDefs implicit cf = linesToText
 bisonBraces :: String -> Doc -> Doc
 bisonBraces s d = text (s ++ " {") $+$ nest 4 d $+$ "}"
 
-codeRequires :: BisonUtils -> Doc
-codeRequires utils = bisonBraces "%code requires" $ linesToText
+codeRequires :: BisonUtils -> [BNFC.CF.Cat] -> Doc
+codeRequires utils entrypts = bisonBraces "%code requires" $ linesToText
     [ "#include <string_view>"
     , "#include <optional>"
     , "#include <variant>"
     , "#include \"Absyn.hpp\""
     ] $++$ text "using yyscan_t = void*;"
     $+$ namespaceWrap utils
-        (text "using ParseResultVariant = std::variant<LC::Program>;")
+        (text ("using ParseResultVariant = std::variant<"
+            ++ intercalate ", "
+            (map ((namespacePrefix utils++) . catNameNoCoerc) entrypts)
+            ++ ">;"))
 
 nonterms :: GroupedRules -> Doc
 nonterms rules = linesToText $ map nonterm $ Data.Map.keys rules
@@ -105,8 +114,8 @@ nonterms rules = linesToText $ map nonterm $ Data.Map.keys rules
             ]
 
 codeProvides :: BisonUtils -> [BNFC.CF.Cat] -> Doc
-codeProvides utils entrypoints = bisonBraces "%code provides" $ namespaceWrap utils $
-    linesToText
+codeProvides utils entrypoints = bisonBraces "%code provides"
+    $ namespaceWrap utils $ linesToText
     [ "using ParseResultOrError ="
     , "    std::variant<ParseResultVariant, Parser::syntax_error>;"
     , "ParseResultOrError Parse(FILE* file);"
