@@ -51,16 +51,6 @@ match = \case
 matchFull :: Regex Char -> String -> Bool
 matchFull reg s = elem (length s) $ match reg s
 
-trueRemoveMinuses :: Eq a => Regex a -> Regex a
-trueRemoveMinuses = \case
-    t@(Term _) -> t
-    l@Lambda -> l
-    p@Phi -> p
-    Rep r -> Rep $ trueRemoveMinuses r
-    Or a b -> Or (trueRemoveMinuses a) (trueRemoveMinuses b)
-    Sub a b -> removeMinuses $ Sub (trueRemoveMinuses a) (trueRemoveMinuses b)
-    Seq a b -> Seq (trueRemoveMinuses a) (trueRemoveMinuses b)
-
 spec :: Spec
 spec = do
     let testcase function s expected
@@ -208,9 +198,7 @@ spec = do
         test "_" False
         test "a d" False
 
-    describe ("[a-z]* - [aeiouy]* = " ++ (compactShow $ removeMinuses
-                $ Sub (Rep (charset "abcdefghijklmnopqrstuvwxyz"))
-                      (Rep (charset "aeiouy")))) $ do
+    describe ("[a-z]* - [aeiouy]*") $ do
         let exp = removeMinuses
                 $ Sub (Rep (charset "abcdefghijklmnopqrstuvwxyz"))
                       (Rep (charset "aeiouy"))
