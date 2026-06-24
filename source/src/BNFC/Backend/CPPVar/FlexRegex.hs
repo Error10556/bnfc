@@ -23,7 +23,7 @@ import Data.Char
 import Numeric
 import Data.Bits
 import Data.Either
-import Data.List
+import Data.List (delete)
 
 data FlexRegex
     = Empty  -- ^ ""
@@ -253,7 +253,7 @@ utf8encode c
 -- (8) [set1]|[set2] -> [set1set2]
 -- (9) ""* -> ""
 -- (10) Phi* -> Phi
-fromMinusRegex :: Minus.Regex Char -> FlexRegex
+fromMinusRegex :: Minus.SimpleRegex Char -> FlexRegex
 fromMinusRegex = \case
     Minus.Term ch -> flexConcat . map Onebyte . utf8encode . ord $ ch
     Minus.Lambda -> Empty
