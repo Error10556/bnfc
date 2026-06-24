@@ -5,7 +5,7 @@ import Test.Hspec
 import BNFC.RegexMinus
 
 -- | lists matched prefix lengths in STRICTLY ASCENDING order
-match :: Regex Char -> String -> [Int]
+match :: SimpleRegex Char -> String -> [Int]
 match = \case
   Term ch -> \case
     h:_ -> if h == ch then [1] else []
@@ -49,7 +49,7 @@ match = \case
           len:tail -> let newsuf = drop (len - prevlen) prevsuf in
             newsuf : helper len tail newsuf
 
-matchFull :: Regex Char -> String -> Bool
+matchFull :: SimpleRegex Char -> String -> Bool
 matchFull reg s = length s `elem` match reg s
 
 spec :: Spec
