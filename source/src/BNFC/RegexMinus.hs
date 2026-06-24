@@ -8,7 +8,8 @@
 -- License: Public Domain
 
 module BNFC.RegexMinus
-  (Regex(..), removeMinuses, charset, string, regexToString) where
+  ( SimpleRegex(..), charset, string, toSimpleRegex
+  , removeMinuses, regexToString) where
 
 -- This module is intended to be imported qualified to use in lexer backends
 -- which wish to support general subtraction.
@@ -53,28 +54,56 @@ module BNFC.RegexMinus
  - detect "loops".
  -}
 
+import qualified BNFC.Abs as Abs
 import qualified Data.Set as Set
 import qualified Data.IntSet as IntSet
 import qualified Data.Map as Map
 import qualified Data.IntMap as IntMap
 
-data Regex a
+data SimpleRegex a
   = Term a
   | Lambda -- ^ This is the 0-length string
   | Phi    -- ^ Recognizes no strings
-  | Rep (Regex a)  -- ^ Kleene Star (*)
-  | Or (Regex a) (Regex a) -- ^ Or (|)
-  | Sub (Regex a) (Regex a) -- ^ Regex Subtraction (-)
-  | Seq (Regex a) (Regex a) -- ^ Sequence (ab)
+  | Rep (SimpleRegex a)  -- ^ Kleene Star (*)
+  | Or (SimpleRegex a) (SimpleRegex a) -- ^ Or (|)
+  | Sub (SimpleRegex a) (SimpleRegex a) -- ^ SimpleRegex Subtraction (-)
+  | Seq (SimpleRegex a) (SimpleRegex a) -- ^ Sequence (ab)
   deriving (Eq,Ord,Show)
 
+-- | Converts from richer canonical regexes to minimal representation
+toSimpleRegex :: SimpleRegex Char -> SimpleRegex Char
+  -> SimpleRegex Char -> SimpleRegex Char -> SimpleRegex Char -> Abs.Reg
+  -> SimpleRegex Char
+toSimpleRegex any digit letter upper lower = helper
+  where
+    helper = \case
+      Abs.RAlt l r -> Or (helper l) (helper r)
+      Abs.RMinus l r -> Sub (helper l) (helper r)
+      Abs.RSeq l r -> Seq (helper l) (helper r)
+      Abs.RStar reg -> Rep (helper reg)
+      Abs.RPlus reg -> let sreg = helper reg in sreg `Seq` Rep sreg
+      Abs.ROpt reg -> Lambda `Or` helper reg
+      Abs.REps -> Lambda
+      Abs.RChar ch -> Term ch
+      Abs.RAlts s -> charset s
+      Abs.RSeqs s -> string s
+      Abs.RDigit -> digit
+      Abs.RLetter -> letter
+      Abs.RUpper -> upper
+      Abs.RLower -> lower
+      Abs.RAny -> any
+
 -- | Character set notation [asdf]
-charset :: Ord a => [a] -> Regex a
-charset = foldr (Or . Term) Phi
+charset :: Ord a => [a] -> SimpleRegex a
+charset = \case
+  [] -> Phi
+  chars -> foldr1 Or $ map Term chars
 
 -- | Convenient seq notation "asdf"
-string :: Ord a => [a] -> Regex a
-string = foldr (Seq . Term) Lambda
+string :: Ord a => [a] -> SimpleRegex a
+string = \case
+  [] -> Lambda
+  chars -> foldr1 Seq $ map Term chars
 
 -- | Used in place of actual regexes
 type RegexID = Int
@@ -89,7 +118,7 @@ data RegexNode a
   | RegexNodeStar RegexID
   deriving (Ord, Eq, Show)
 
--- | Regex with precomputed possible starting characters and the value of delta
+-- | SimpleRegex with precomputed possible starting characters and the value of delta
 data AnnotatedRegexNode a = AnnotatedRegexNode
   { regexID :: RegexID
   , regexNode :: RegexNode a
@@ -215,7 +244,7 @@ getOrNewTerm ch = getOrNewID (RegexNodeTerm ch) (Set.singleton ch) False
 -- | Converts the simple regex into internal representation with precomputed
 -- starts and delta
 -- Converts subtractions
-makeAnnotated :: Ord a => Regex a -> RegexTrees a
+makeAnnotated :: Ord a => SimpleRegex a -> RegexTrees a
   -> (RegexTrees a, AnnotatedRegexNode a)
 makeAnnotated reg mp = case reg of
   Term a -> getOrNewTerm a mp
@@ -243,7 +272,7 @@ makeAnnotated reg mp = case reg of
       Or a b -> flattenOr a ++ flattenOr b
       Phi -> []
       other -> [other]
-    reorderSeq :: Regex a -> Regex a -> (Regex a, Regex a)
+    reorderSeq :: SimpleRegex a -> SimpleRegex a -> (SimpleRegex a, SimpleRegex a)
     reorderSeq a b = case a of
       Seq l r -> reorderSeq l (Seq r b)
       _ -> (a, b)
@@ -377,7 +406,7 @@ convertSub a b mp = (\(mp, conv, _) -> (mp, conv)) $ helper a b mp 0 Map.empty
           in getOrNewSeq preLoopStar alt mp1
 
 -- | straightforward conversion
-convertToSimpleRegex :: Ord a => RegexID -> RegexTrees a -> Regex a
+convertToSimpleRegex :: Ord a => RegexID -> RegexTrees a -> SimpleRegex a
 convertToSimpleRegex regID mp = case node of
     RegexNodeEmpty -> Lambda
     RegexNodeTerm a -> Term a
@@ -391,14 +420,14 @@ convertToSimpleRegex regID mp = case node of
     node = regexNode reg
 
 -- | Produces an equivalent regex without any 'Sub's
-removeMinuses :: Ord a => Regex a -> Regex a
+removeMinuses :: Ord a => SimpleRegex a -> SimpleRegex a
 removeMinuses reg = convertToSimpleRegex (regexID annot) mp
   where
     (mp, annot) = makeAnnotated reg emptyRegexTrees
 
 -- | visualizes the regex, showing the empty string as () and the empty language
 -- as []. Uses parentheses to resolve precedence.
-regexToString :: Regex Char -> String
+regexToString :: SimpleRegex Char -> String
 regexToString = \case
   Term ch -> [ch]
   Lambda -> ""
@@ -408,7 +437,7 @@ regexToString = \case
   Sub l r -> helper 1 l ++ "-" ++ helper 2 r
   Seq l r -> helper 3 l ++ helper 3 r
   where
-    helper :: Int -> Regex Char -> String
+    helper :: Int -> SimpleRegex Char -> String
     helper prec reg
       | prec <= precedence reg = repr
       | otherwise = "(" ++ repr ++ ")"
