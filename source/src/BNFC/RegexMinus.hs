@@ -7,11 +7,13 @@
 -- (accessible via the Wayback Machine)
 -- License: Public Domain
 
+module BNFC.RegexMinus
+  (Regex(..), removeMinuses, charset, string, regexToString) where
+
+-- This module is intended to be imported qualified to use in lexer backends
+-- which wish to support general subtraction.
+
 {- EXPLANATION
- -
- -
- - Let's consider an example: we have to convert (a|b)*-a* to an equivalent
- - regex without the subtraction operator. (We should get a*b(a|b)*).
  -
  - First, we define:
  -  λ = the empty string ""
@@ -36,6 +38,9 @@
  - Our strategy is to derive the subtraction until we arrive at the same
  - subtraction as a subexpression, and then apply the second observation:
  -
+ - Let's consider an example: we have to convert (a|b)*-a* to an equivalent
+ - regex without the subtraction operator.
+ -
  - R = (a|b)*-a* = a((a|b)*-a)|b((a|b)*-φ) = aR|b(a|b)* = a*b(a|b)*.
  -
  - The derivation might take several steps and/or require grouping several
@@ -47,9 +52,6 @@
  - This implementation assigns a unique ID to every regex and uses the IDs to
  - detect "loops".
  -}
-
-module BNFC.RegexMinus
-  (Regex(..), removeMinuses, charset, string, regexToString) where
 
 import qualified Data.Set as Set
 import qualified Data.IntSet as IntSet
