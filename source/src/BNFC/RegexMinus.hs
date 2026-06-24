@@ -1,4 +1,3 @@
--- Written by Timur Usmanov (t.usmanov@innopolis.university)
 -- Inspired by David J. Sankel (camior@gmail.com)
 -- Many ideas taken from:
 -- http://home.chello.no/~mgrsby/sgmlintr/file0003.htm
