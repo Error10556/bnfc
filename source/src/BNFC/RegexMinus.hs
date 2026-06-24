@@ -1,4 +1,4 @@
--- Inspired by David J. Sankel (camior@gmail.com)
+-- Inspired by David J. Sankel's implementation
 -- Many ideas taken from:
 -- http://home.chello.no/~mgrsby/sgmlintr/file0003.htm
 -- http://home.chello.no/~mgrsby/sgmlintr/file0004.htm
