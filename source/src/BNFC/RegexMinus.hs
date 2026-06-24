@@ -5,11 +5,11 @@
 -- http://home.chello.no/~mgrsby/sgmlintr/file0004.htm
 -- http://home.chello.no/~mgrsby/sgmlintr/file0005.htm
 -- (accessible via the Wayback Machine)
--- License: Public Domain 
+-- License: Public Domain
 
 {- EXPLANATION
  -
- - 
+ -
  - Let's consider an example: we have to convert (a|b)*-a* to an equivalent
  - regex without the subtraction operator. (We should get a*b(a|b)*).
  -
@@ -272,7 +272,7 @@ derive ch reg mp = case regNode of
         then let (mp3, derivRight) = derive ch right mp2
           in getOrNewOr [onlyLeftRes, derivRight] mp3
         else (mp2, onlyLeftRes)
-    RegexNodeStar aID -> let                    
+    RegexNodeStar aID -> let
         a = getByID aID mp
         (mp1, derivA) = derive ch a mp
       in getOrNewSeq derivA reg mp1
@@ -316,7 +316,7 @@ convertSub a b mp = (\(mp, conv, _) -> (mp, conv)) $ helper a b mp 0 Map.empty
     --     -- note that R=xR+y <=> R=x*y, where 'x' is a sequence of terms we
     --     -- derive over recursively
     --     return ((sequenceUpToLoop)* converted, looped - thisloop)
-    helper a b mp depth prevStates = let 
+    helper a b mp depth prevStates = let
         (mp1, lambda) = getOrNewLambda mp
       in case currentState `Map.lookup` prevStates of
         Just prevdepth -> let
