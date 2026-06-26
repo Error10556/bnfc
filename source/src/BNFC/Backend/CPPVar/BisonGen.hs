@@ -196,7 +196,7 @@ category implicitTokenNames cat rules = case cat of
           where
             [dollarItem] = rhsObjectIndices rhs
         "[]" -> "/* [] */ { }"
-        name -> error "Invalid name for a list category: " ++ name
+        name -> error ("Invalid name for a list category: " ++ name)
     
   _ -> text (catNameWithCoerc cat) $+$ bisonRules
       [makeRule r | r <- rules, BNFC.CF.internal r == BNFC.CF.Parsable]
@@ -236,7 +236,7 @@ category implicitTokenNames cat rules = case cat of
           -- if tokenName == BNFC.CF.catChar then "CHAR" else
           -- if tokenName == BNFC.CF.catDouble then "DOUBLE" else
           -- if tokenName == BNFC.CF.catInteger then "INTEGER" else
-          error "Unsupported literal token: " ++ tokenName
+          error ("Unsupported literal token: " ++ tokenName)
         _ -> catNameWithCoerc cat
       Right s -> (case s `Data.Map.lookup` implicitTokenNames of
         Nothing -> error "string token not named"
