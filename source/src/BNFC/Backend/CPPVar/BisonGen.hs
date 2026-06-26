@@ -83,11 +83,44 @@ newBisonUtils opts = case BNFC.Options.inPackage opts of
     , namespacePrefix = ns ++ "::"
     }
 
+data LiteralTokenInfo = LiteralTokenInfo
+  { literalTokenName :: String
+  , literalTokenStorageType :: String
+  }
+
+literalTokenInfo :: Data.Map.Map String LiteralTokenInfo
+literalTokenInfo = Data.Map.fromList
+  [ (BNFC.CF.catIdent, LiteralTokenInfo
+      { literalTokenName = "IDENT"
+      , literalTokenStorageType = "std::string" })
+  , (BNFC.CF.catChar, LiteralTokenInfo
+      { literalTokenName = "CHAR"
+      , literalTokenStorageType = "int32_t" })
+  , (BNFC.CF.catInteger, LiteralTokenInfo
+      { literalTokenName = "INTEGER"
+      , literalTokenStorageType = "long" })
+  , (BNFC.CF.catString, LiteralTokenInfo
+      { literalTokenName = "STRING"
+      , literalTokenStorageType = "std::string" })
+  , (BNFC.CF.catDouble, LiteralTokenInfo
+      { literalTokenName = "DOUBLE"
+      , literalTokenStorageType = "double" })
+  ]
+
+lookupLiteralTokenInfo :: String -> LiteralTokenInfo
+lookupLiteralTokenInfo catname =
+  case catname `Data.Map.lookup` literalTokenInfo of
+    Nothing -> error $ "Unsupported literal token: " ++ catname
+    Just res -> res
+
 tokenDefs :: Data.Map.Map String String -> BNFC.CF.CF -> Doc
 tokenDefs implicit cf = linesToText
   [ "%token " ++ tkname | tkname <- Data.Map.elems implicit ]
-  $+$ if BNFC.CF.catIdent `elem` BNFC.CF.cfgLiterals cf
-    then text "%token <std::string> IDENT" else empty
+  $+$ linesToText (map lit2token $ BNFC.CF.cfgLiterals cf)
+  where
+    lit2token catname = let info = lookupLiteralTokenInfo catname in
+      concat ["%token <", literalTokenStorageType info, "> "
+             , literalTokenName info]
 
 bisonBraces :: String -> Doc -> Doc
 bisonBraces s d = text (s ++ " {") $+$ nest 4 d $+$ "}"
@@ -230,13 +263,8 @@ category implicitTokenNames cat rules = case cat of
     sentFormToBison :: BNFC.CF.SentForm -> String
     sentFormToBison = unwords . map (\case
       Left cat -> case cat of
-        BNFC.CF.TokenCat tokenName ->
-          if tokenName == BNFC.CF.catIdent then "IDENT" else
-          -- if tokenName == BNFC.CF.catString then "STRING" else
-          -- if tokenName == BNFC.CF.catChar then "CHAR" else
-          -- if tokenName == BNFC.CF.catDouble then "DOUBLE" else
-          -- if tokenName == BNFC.CF.catInteger then "INTEGER" else
-          error ("Unsupported literal token: " ++ tokenName)
+        BNFC.CF.TokenCat tokenName -> literalTokenName
+          $ lookupLiteralTokenInfo tokenName
         _ -> catNameWithCoerc cat
       Right s -> (case s `Data.Map.lookup` implicitTokenNames of
         Nothing -> error "string token not named"
