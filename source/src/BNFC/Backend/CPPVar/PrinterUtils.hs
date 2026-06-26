@@ -16,10 +16,19 @@ data PrintableSymbol
     }
   | FunctionRule Rule
   | Ident
-  -- TODO add String, Char, Double, Integer
+  | String
+  | Char
+  | Double
+  | Integer
 
 literalName2Symbol :: Map Literal PrintableSymbol
-literalName2Symbol = fromList [(catIdent, Ident)]
+literalName2Symbol = fromList
+  [ (catIdent, Ident)
+  , (catString, String)
+  , (catInteger, Integer)
+  , (catDouble, Double)
+  , (catChar, Char)
+  ]
 
 getPrintableSymbols :: CF -> GroupedRules -> [PrintableSymbol]
 getPrintableSymbols cf rulemap = literals ++ nonliterals
@@ -83,3 +92,7 @@ printableClassName = \case
   ListCategory {printListName=s} -> s
   FunctionRule r -> funName r
   Ident -> catIdent
+  Char -> catChar
+  String -> catString
+  Double -> catDouble
+  Integer -> catInteger
