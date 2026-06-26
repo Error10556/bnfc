@@ -1,7 +1,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 module BNFC.Backend.CPPVar.PatternMatchingGen
-    (patternMatchingFilename, patternMatchingHpp) where
+  (patternMatchingFilename, patternMatchingHpp) where
 
 import BNFC.Backend.CPPVar.CPPUtil
 import Text.PrettyPrint

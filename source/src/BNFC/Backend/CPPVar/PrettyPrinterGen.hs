@@ -1,9 +1,9 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 module BNFC.Backend.CPPVar.PrettyPrinterGen
-    ( prettyPrinterHppFilename
-    , prettyPrinterCppFilename
-    , makePrettyPrinter) where
+  ( prettyPrinterHppFilename
+  , prettyPrinterCppFilename
+  , makePrettyPrinter) where
 
 import Text.PrettyPrint hiding (Str)
 import BNFC.Backend.CPPVar.CPPUtil
@@ -23,10 +23,10 @@ unlinesToText = linesToText . lines
 
 -- | -> (hpp, cpp)
 makePrettyPrinter :: BNFC.Options.SharedOptions -> [PrintableSymbol]
-    -> (Doc, Doc)
+  -> (Doc, Doc)
 makePrettyPrinter opts printable = (hpp, cpp)
-    where
-        hpp = unlinesToText [s|
+  where
+    hpp = unlinesToText [s|
 // The default pretty printer does not suit all languages.
 // See PrettyPrinter.cpp for details.
 
@@ -36,14 +36,14 @@ makePrettyPrinter opts printable = (hpp, cpp)
 #include "Absyn.hpp"
 |] $++$ packwrap (printerClassDecl printable)
 
-        cpp = disclaimer $++$ unlinesToText [s|
+    cpp = disclaimer $++$ unlinesToText [s|
 #include "PrettyPrinter.hpp"
 
 #include "Absyn.hpp"
 |] $++$ packwrap (printerUtilImpl
-            $++$ vcatSpaced (map makeMethod printable) $++$ operatorShLImpl printable)
+      $++$ vcatSpaced (map makeMethod printable) $++$ operatorShLImpl printable)
 
-        packwrap = wrapPackage opts
+    packwrap = wrapPackage opts
 
 printerClassDecl :: [PrintableSymbol] -> Doc
 printerClassDecl printable = unlinesToText [s|
@@ -66,15 +66,15 @@ public:
     PrettyPrinter WithCoercionLevel(int level) const;
     void NewLine() const;
 |] $+$ nest 4 (linesToText (map method printable)) $+$ text "};"
-    $++$ linesToText (map operatorShL printable) $+$ text [s|
+  $++$ linesToText (map operatorShL printable) $+$ text [s|
 const PrettyPrinter& operator<<(const PrettyPrinter&, std::string_view);
 |]
-    where
-        method p =
-            "void operator()(const " ++ printableClassName p ++ "&) const;"
-        operatorShL p =
-            "const PrettyPrinter& operator<<(const PrettyPrinter&, const "
-            ++ printableClassName p ++ "&);"
+  where
+    method p =
+      "void operator()(const " ++ printableClassName p ++ "&) const;"
+    operatorShL p =
+      "const PrettyPrinter& operator<<(const PrettyPrinter&, const "
+      ++ printableClassName p ++ "&);"
 
 disclaimer :: Doc
 disclaimer = unlinesToText [s|
@@ -135,93 +135,93 @@ PrettyPrinter PrettyPrinter::Dedented(unsigned int minusIndent,
 |]
 
 data PrintTerm
-    = Str String
-    | Nest [PrintTerm]
-    | Newline
-    | Nonterminal Integer String Bool  -- ^ coercionLevel, fieldName, isPointer
+  = Str String
+  | Nest [PrintTerm]
+  | Newline
+  | Nonterminal Integer String Bool  -- ^ coercionLevel, fieldName, isPointer
 
 -- | Step 0
 getBasicPrintTerms :: BNFC.CF.SentForm -> [PrintTerm]
 getBasicPrintTerms sentForm = helper (map fst $ fieldNames sentForm) sentForm
-    where
-        helper fields = helper'
-            where
-                helper' = \case
-                    [] -> []
-                    h:tail -> case h of
-                        Left cat -> let f:fs = fields in
-                            Nonterminal
-                            (case cat of BNFC.CF.CoercCat _ c -> c; _ -> 0) f
-                            (isPointerCat cat)
-                            : helper fs tail
-                        Right s -> Str s : helper' tail
-        isPointerCat = \case
-            BNFC.CF.CoercCat _ _ -> True
-            BNFC.CF.Cat _ -> True
-            _ -> False
+  where
+    helper fields = helper'
+      where
+        helper' = \case
+          [] -> []
+          h:tail -> case h of
+            Left cat -> let f:fs = fields in
+              Nonterminal
+              (case cat of BNFC.CF.CoercCat _ c -> c; _ -> 0) f
+              (isPointerCat cat)
+              : helper fs tail
+            Right s -> Str s : helper' tail
+    isPointerCat = \case
+      BNFC.CF.CoercCat _ _ -> True
+      BNFC.CF.Cat _ -> True
+      _ -> False
 
 -- | Step 1
 handleCurlyBraces :: [PrintTerm] -> [PrintTerm]
 handleCurlyBraces lst = let (read, unread) = helper lst
-    in case unread of
-        [] -> read
-        unmatched:tail -> concat [read, [unmatched], handleCurlyBraces tail]
-    where
-        -- | reads until the first unbalanced '}'
-        --  -> (processed, unprocessed suffix)
-        helper :: [PrintTerm] -> ([PrintTerm], [PrintTerm])
-        helper = \case
-            [] -> ([], [])
-            lst@(t:tail) -> case t of
-                Str "{" -> let (inside, outside) = helper tail
-                    in case outside of
-                        closing@(Str "}"):tail -> let
-                                (read, unread) = helper tail
-                            in (t:Nest (Newline:inside):Newline
-                                :closing:Newline:read, unread)
-                        _ -> (t:inside, outside)
-                Str "}" -> ([], lst)
-                _ -> let (read, unread) = helper tail in (t:read, unread)
+  in case unread of
+    [] -> read
+    unmatched:tail -> concat [read, [unmatched], handleCurlyBraces tail]
+  where
+    -- | reads until the first unbalanced '}'
+    --  -> (processed, unprocessed suffix)
+    helper :: [PrintTerm] -> ([PrintTerm], [PrintTerm])
+    helper = \case
+      [] -> ([], [])
+      lst@(t:tail) -> case t of
+        Str "{" -> let (inside, outside) = helper tail
+          in case outside of
+            closing@(Str "}"):tail -> let
+                (read, unread) = helper tail
+              in (t:Nest (Newline:inside):Newline
+                :closing:Newline:read, unread)
+            _ -> (t:inside, outside)
+        Str "}" -> ([], lst)
+        _ -> let (read, unread) = helper tail in (t:read, unread)
 
 -- | Step 2
 handleTokenSpacing :: [PrintTerm] -> [PrintTerm]
 handleTokenSpacing = \case
-    [] -> []
-    first:tail -> first : helper first tail
-    where
-        helper :: PrintTerm -> [PrintTerm] -> [PrintTerm]
-        helper = \case
-            Str ";" -> (Newline:) . helper Newline
-            prev -> \case
-                [] -> []
-                cur:tail -> (if needSep prev cur then (space:) else id)
-                    (cur:helper cur tail)
-        needSep :: PrintTerm -> PrintTerm -> Bool
-        needSep a b = case a of
-            Newline -> False
-            Str s -> (s `notElem` ["{", "[", "("]) && right
-            _ -> right
-            where
-                right = case b of
-                    Newline -> False
-                    Str s -> s `notElem` ["}", "]", ")", ",", ";"]
-                    _ -> True
-        space = Str " "
+  [] -> []
+  first:tail -> first : helper first tail
+  where
+    helper :: PrintTerm -> [PrintTerm] -> [PrintTerm]
+    helper = \case
+      Str ";" -> (Newline:) . helper Newline
+      prev -> \case
+        [] -> []
+        cur:tail -> (if needSep prev cur then (space:) else id)
+          (cur:helper cur tail)
+    needSep :: PrintTerm -> PrintTerm -> Bool
+    needSep a b = case a of
+      Newline -> False
+      Str s -> (s `notElem` ["{", "[", "("]) && right
+      _ -> right
+      where
+        right = case b of
+          Newline -> False
+          Str s -> s `notElem` ["}", "]", ")", ",", ";"]
+          _ -> True
+    space = Str " "
 
 -- | Step 3
 -- also removes empty strings from the result
 mergeStrs :: [PrintTerm] -> [PrintTerm]
 mergeStrs = map (\case Left ss -> Str (concat ss); Right t -> t) . helper
-    where
-        helper = \case
-            [] -> []
-            h:tail -> let tail' = helper tail in
-                case h of
-                    Str "" -> tail'
-                    Str sh -> case tail' of
-                        (Left ss):ttail' -> Left (sh:ss):ttail'
-                        _ -> Left [sh] : tail'
-                    _ -> Right h : tail'
+  where
+    helper = \case
+      [] -> []
+      h:tail -> let tail' = helper tail in
+        case h of
+          Str "" -> tail'
+          Str sh -> case tail' of
+            (Left ss):ttail' -> Left (sh:ss):ttail'
+            _ -> Left [sh] : tail'
+          _ -> Right h : tail'
 
 methodIdent :: Doc
 methodIdent = unlinesToText [s|
@@ -234,129 +234,129 @@ void PrettyPrinter::operator()(const Ident& v) const {
 
 methodCategory :: String -> Doc
 methodCategory name = linesToText
-    [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
-    , "    std::visit(*this, v);"
-    , "}"
-    ]
+  [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  , "    std::visit(*this, v);"
+  , "}"
+  ]
 
 methodFunctionRule :: BNFC.CF.Rule -> Doc
 methodFunctionRule r = linesToText
-    [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
-    , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
-    ] $+$ nest 4 (fst $ helperTerm2doc 0 terms)
-    $+$ linesToText
-    [ "    IF_BAD_COERC(" ++ name ++ ") out << ')';"
-    , "}"
-    ]
-    where
-        name = BNFC.CF.funName r
-        terms = mergeStrs . handleTokenSpacing . handleCurlyBraces
-            . getBasicPrintTerms $ BNFC.CF.rhsRule r
-        -- | -> (Doc, have we used the new printer object?)
-        nestedTerm2doc :: Int -> [PrintTerm] -> (Doc, Bool)
-        nestedTerm2doc lv terms =
-            let (doc, uses) = helperTerm2doc lv terms
-            in ((if uses then
-                text ("PrettyPrinter printer" ++ show lv ++ " = " ++
-                    printerDotAtLv (lv - 1) ++ "Indented(INDENT);") else empty)
-                $+$ doc, uses)
-        -- | -> (Doc, have we used the current printer object?)
-        helperTerm2doc :: Int -> [PrintTerm] -> (Doc, Bool)
-        helperTerm2doc lv = \case
-            [] -> (empty, False)
-            term:tail -> case term of
-                Str s -> ( text ("out << " ++ show s ++ ";") $+$ taildoc
-                         , tailUsesPrinter)
-                Newline -> (text (printerDot ++ "NewLine();") $+$ taildoc, True)
-                Nest ns ->
-                    let (nestdoc, nestUsesPrinter) = nestedTerm2doc (lv + 1) ns
-                    in ( text "{" $+$ nest 4 nestdoc $+$ text "}" $+$ taildoc
-                       , nestUsesPrinter || tailUsesPrinter)
-                Nonterminal coerc field isPointer -> (text (concat
-                    [ printerDot, "WithCoercionLevel("
-                    , show coerc, ")(", if isPointer then "*v." else "v."
-                    , field, ");"]) $+$ taildoc, True)
-                where
-                    (taildoc, tailUsesPrinter)
-                        = helperTerm2doc lv tail
-                    printerDot = printerDotAtLv lv
-        printerDotAtLv = \case
-            0 -> ""
-            i -> "printer" ++ show i ++ "."
+  [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
+  ] $+$ nest 4 (fst $ helperTerm2doc 0 terms)
+  $+$ linesToText
+  [ "    IF_BAD_COERC(" ++ name ++ ") out << ')';"
+  , "}"
+  ]
+  where
+    name = BNFC.CF.funName r
+    terms = mergeStrs . handleTokenSpacing . handleCurlyBraces
+      . getBasicPrintTerms $ BNFC.CF.rhsRule r
+    -- | -> (Doc, have we used the new printer object?)
+    nestedTerm2doc :: Int -> [PrintTerm] -> (Doc, Bool)
+    nestedTerm2doc lv terms =
+      let (doc, uses) = helperTerm2doc lv terms
+      in ((if uses then
+        text ("PrettyPrinter printer" ++ show lv ++ " = " ++
+          printerDotAtLv (lv - 1) ++ "Indented(INDENT);") else empty)
+        $+$ doc, uses)
+    -- | -> (Doc, have we used the current printer object?)
+    helperTerm2doc :: Int -> [PrintTerm] -> (Doc, Bool)
+    helperTerm2doc lv = \case
+      [] -> (empty, False)
+      term:tail -> case term of
+        Str s -> ( text ("out << " ++ show s ++ ";") $+$ taildoc
+             , tailUsesPrinter)
+        Newline -> (text (printerDot ++ "NewLine();") $+$ taildoc, True)
+        Nest ns ->
+          let (nestdoc, nestUsesPrinter) = nestedTerm2doc (lv + 1) ns
+          in ( text "{" $+$ nest 4 nestdoc $+$ text "}" $+$ taildoc
+            , nestUsesPrinter || tailUsesPrinter)
+        Nonterminal coerc field isPointer -> (text (concat
+          [ printerDot, "WithCoercionLevel("
+          , show coerc, ")(", if isPointer then "*v." else "v."
+          , field, ");"]) $+$ taildoc, True)
+        where
+          (taildoc, tailUsesPrinter)
+            = helperTerm2doc lv tail
+          printerDot = printerDotAtLv lv
+    printerDotAtLv = \case
+      0 -> ""
+      i -> "printer" ++ show i ++ "."
 
 methodList :: String -> Integer
-    -> Maybe [String]
-    -> Maybe ([String], BNFC.CF.Cat, [String], BNFC.CF.Cat, [String])
-    -> Maybe ([String], BNFC.CF.Cat, [String])
-    -> Doc
+  -> Maybe [String]
+  -> Maybe ([String], BNFC.CF.Cat, [String], BNFC.CF.Cat, [String])
+  -> Maybe ([String], BNFC.CF.Cat, [String])
+  -> Doc
 methodList name itemcoerc empty cons single = linesToText
-    [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
-    , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
-    ] $+$ nest 4 body $+$ linesToText
-    [ "    IF_BAD_COERC(" ++ name ++ ") out << ')';"
-    , "}"
-    ]
-    where
-        body = case single of
-            Nothing -> itemprinter
-                $+$ text "for (const auto& item : v) {"
-                $+$ nest 4 (lcons' $+$ text "itemprinter(item);"
-                    $+$ mcons')
-                $+$ text "}" $+$ cyclercons False
-            Just (lsingle, _, rsingle) -> text "if (v.empty()) {"
-                $+$ nest 4 empty'
-                $+$ text "} else {"
-                $+$ nest 4 (itemprinter
-                    $+$ text "auto last = std::prev(v.cend());"
-                    $+$ text "for (auto i = v.cbegin(); i != last; ++i) {"
-                    $+$ nest 4 (lcons' $+$ text "itemprinter(*i);" $+$ mcons')
-                    $+$ text "}"
-                    $+$ lsingle' $+$ text "itemprinter(*last);" $+$ rsingle'
-                    $+$ cyclercons True
-                ) $+$ text "}"
-                where
-                    lsingle' = compileSepString lsingle
-                    rsingle' = compileSepString rsingle
+  [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
+  ] $+$ nest 4 body $+$ linesToText
+  [ "    IF_BAD_COERC(" ++ name ++ ") out << ')';"
+  , "}"
+  ]
+  where
+    body = case single of
+      Nothing -> itemprinter
+        $+$ text "for (const auto& item : v) {"
+        $+$ nest 4 (lcons' $+$ text "itemprinter(item);"
+          $+$ mcons')
+        $+$ text "}" $+$ cyclercons False
+      Just (lsingle, _, rsingle) -> text "if (v.empty()) {"
+        $+$ nest 4 empty'
+        $+$ text "} else {"
+        $+$ nest 4 (itemprinter
+          $+$ text "auto last = std::prev(v.cend());"
+          $+$ text "for (auto i = v.cbegin(); i != last; ++i) {"
+          $+$ nest 4 (lcons' $+$ text "itemprinter(*i);" $+$ mcons')
+          $+$ text "}"
+          $+$ lsingle' $+$ text "itemprinter(*last);" $+$ rsingle'
+          $+$ cyclercons True
+        ) $+$ text "}"
+        where
+          lsingle' = compileSepString lsingle
+          rsingle' = compileSepString rsingle
 
-        itemprinter = text $ "PrettyPrinter itemprinter = WithCoercionLevel("
-            ++ show itemcoerc ++ ");"
-        compileSepString :: [String] -> Doc
-        compileSepString strs =
-            linesToText . map printthis . mergeStrs . handleTokenSpacing
-                    . getBasicPrintTerms . map Right $ strs
-            where
-                printthis = \case
-                    Str s -> "out << " ++ show s ++ ";"
-                    Newline -> "NewLine();";
-                    Nest _ -> error "Somehow got nesting in list"
-                    Nonterminal _ _ _ ->
-                        error "Somehow got categories in separators"
-        (lcons, mcons, rcons) = case cons of
-            Nothing -> ([], [], [])
-            Just (a, _, b, _, c) -> (a, b, c)
-        lcons' = compileSepString $ lcons ++ [""]
-        mcons' = compileSepString $ "" : (mcons ++ [""])
-        rcons' = compileSepString $ "" : rcons
-        empty' = case empty of
-            Nothing -> text "// Empty list not defined in syntax"
-            Just ss -> compileSepString ss
-        cyclercons needDecr = if isEmpty rcons' then rcons' else
-            text ("for (size_t i = v.size()"
-                ++ (if needDecr then " - 1" else "") ++ "; i; --i) {")
-            $+$ nest 4 rcons' $+$ text "}"
+    itemprinter = text $ "PrettyPrinter itemprinter = WithCoercionLevel("
+      ++ show itemcoerc ++ ");"
+    compileSepString :: [String] -> Doc
+    compileSepString strs =
+      linesToText . map printthis . mergeStrs . handleTokenSpacing
+          . getBasicPrintTerms . map Right $ strs
+      where
+        printthis = \case
+          Str s -> "out << " ++ show s ++ ";"
+          Newline -> "NewLine();";
+          Nest _ -> error "Somehow got nesting in list"
+          Nonterminal _ _ _ ->
+            error "Somehow got categories in separators"
+    (lcons, mcons, rcons) = case cons of
+      Nothing -> ([], [], [])
+      Just (a, _, b, _, c) -> (a, b, c)
+    lcons' = compileSepString $ lcons ++ [""]
+    mcons' = compileSepString $ "" : (mcons ++ [""])
+    rcons' = compileSepString $ "" : rcons
+    empty' = case empty of
+      Nothing -> text "// Empty list not defined in syntax"
+      Just ss -> compileSepString ss
+    cyclercons needDecr = if isEmpty rcons' then rcons' else
+      text ("for (size_t i = v.size()"
+        ++ (if needDecr then " - 1" else "") ++ "; i; --i) {")
+      $+$ nest 4 rcons' $+$ text "}"
 
 makeMethod :: PrintableSymbol -> Doc
 makeMethod = \case
-    NormalCategory s -> methodCategory s
-    ListCategory
-        { printListName = name
-        , printListItemCoerc = itemcoerc
-        , printListEmpty = empty
-        , printListCons = cons
-        , printListSingle = single
-        } -> methodList name itemcoerc empty cons single
-    FunctionRule r -> methodFunctionRule r
-    Ident -> methodIdent
+  NormalCategory s -> methodCategory s
+  ListCategory
+    { printListName = name
+    , printListItemCoerc = itemcoerc
+    , printListEmpty = empty
+    , printListCons = cons
+    , printListSingle = single
+    } -> methodList name itemcoerc empty cons single
+  FunctionRule r -> methodFunctionRule r
+  Ident -> methodIdent
 
 operatorShLImpl :: [PrintableSymbol] -> Doc
 operatorShLImpl printables = unlinesToText [s|
@@ -366,9 +366,9 @@ operatorShLImpl printables = unlinesToText [s|
         return p;                                                            \
     }
 |] $++$ linesToText
-        (map (\p -> "PrettyPrinterSHL(" ++ printableClassName p ++ ");")
-            printables)
-    $++$ unlinesToText [s|
+    (map (\p -> "PrettyPrinterSHL(" ++ printableClassName p ++ ");")
+      printables)
+  $++$ unlinesToText [s|
 const PrettyPrinter& operator<<(const PrettyPrinter& p, std::string_view v) {
     p.out << v;
     return p;

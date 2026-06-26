@@ -1,6 +1,6 @@
 {-
-    BNF Converter -> C++17 with std::variant
-    (C) (2026) Author: Timur Usmanov <t.usmanov@innopolis.university>
+  BNF Converter -> C++17 with std::variant
+  (C) (2026) Author: Timur Usmanov <t.usmanov@innopolis.university>
 -}
 
 module BNFC.Backend.CPPVar (makeCppVar) where
@@ -23,20 +23,21 @@ comment = ("/* "++) . (++" */")
 
 makeCppVar :: SharedOptions -> CF -> MkFiles ()
 makeCppVar opts cf = do
-    let groupedRules = CPPUtil.groupRules cf
-        (absynHpp, absynCpp) = makeAbsyn opts cf groupedRules
-        (flexFile, implicitTokenNames) = makeFlex opts cf
-        bisonFile = makeBison opts cf implicitTokenNames groupedRules
-        printables = getPrintableSymbols cf groupedRules
-        (syntaxHpp, syntaxCpp) = makeSyntaxPrinter opts printables
-        (prettyHpp, prettyCpp) = makePrettyPrinter opts printables
-    mkfile absynHppFilename comment absynHpp
-    mkfile absynCppFilename comment absynCpp
-    mkfile (flexFilename opts) comment flexFile
-    mkfile (bisonFilename opts) comment bisonFile
-    mkfile patternMatchingFilename comment patternMatchingHpp
-    mkfile syntaxPrinterHppFilename comment syntaxHpp
-    mkfile syntaxPrinterCppFilename comment syntaxCpp
-    mkfile prettyPrinterHppFilename comment prettyHpp
-    mkfile prettyPrinterCppFilename comment prettyCpp
-    mkfile testFilename comment (makeTest opts)
+  let
+    groupedRules = CPPUtil.groupRules cf
+    (absynHpp, absynCpp) = makeAbsyn opts cf groupedRules
+    (flexFile, implicitTokenNames) = makeFlex opts cf
+    bisonFile = makeBison opts cf implicitTokenNames groupedRules
+    printables = getPrintableSymbols cf groupedRules
+    (syntaxHpp, syntaxCpp) = makeSyntaxPrinter opts printables
+    (prettyHpp, prettyCpp) = makePrettyPrinter opts printables
+  mkfile absynHppFilename comment absynHpp
+  mkfile absynCppFilename comment absynCpp
+  mkfile (flexFilename opts) comment flexFile
+  mkfile (bisonFilename opts) comment bisonFile
+  mkfile patternMatchingFilename comment patternMatchingHpp
+  mkfile syntaxPrinterHppFilename comment syntaxHpp
+  mkfile syntaxPrinterCppFilename comment syntaxCpp
+  mkfile prettyPrinterHppFilename comment prettyHpp
+  mkfile prettyPrinterCppFilename comment prettyCpp
+  mkfile testFilename comment (makeTest opts)
