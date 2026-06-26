@@ -36,7 +36,7 @@ makePrettyPrinter opts printable = (hpp, cpp)
     cpp = disclaimer $++$ unlinesToText [s|
 #include "PrettyPrinter.hpp"
 
-#include "Absyn.hpp"
+#include "PrinterCommon.hpp"
 |] $++$ packwrap (printerUtilImpl
       $++$ vcatSpaced (map makeMethod printable) $++$ operatorShLImpl printable)
 
@@ -230,7 +230,40 @@ void PrettyPrinter::operator()(const Ident& v) const {
 |]
 
 methodString :: Doc
-methodString = unlinesToText
+methodString = unlinesToText [s|
+void PrettyPrinter::operator()(const String& v) const {
+    IF_BAD_COERC(String) out << '(';
+    PrintEscapedString(out, v.Value);
+    IF_BAD_COERC(String) out << ')';
+}
+|]
+
+methodInteger :: Doc
+methodInteger = unlinesToText [s|
+void PrettyPrinter::operator()(const Integer& v) const {
+    IF_BAD_COERC(Integer) out << '(';
+    out << v.Value;
+    IF_BAD_COERC(Integer) out << ')';
+}
+|]
+
+methodDouble :: Doc
+methodDouble = unlinesToText [s|
+void PrettyPrinter::operator()(const Double& v) const {
+    IF_BAD_COERC(Double) out << '(';
+    PrintDouble(out, v.Value);
+    IF_BAD_COERC(Double) out << ')';
+}
+|]
+
+methodChar :: Doc
+methodChar = unlinesToText [s|
+void PrettyPrinter::operator()(const Char& v) const {
+    IF_BAD_COERC(Double) out << '(';
+    PrintEscapedChar(out, v.Value);
+    IF_BAD_COERC(Double) out << ')';
+}
+|]
 
 methodCategory :: String -> Doc
 methodCategory name = linesToText
