@@ -180,14 +180,12 @@ clonePtrImpl = linesToText
 
 -- | -> (definitions, reflections)
 headerCats :: Data.Map.Map Cat [Rule] -> (Doc, Doc)
-headerCats groupedRules = (predefs $++$ vcatSpaced defs, vcatSpaced refls)
+headerCats groupedRules = (vcatSpaced defs, vcatSpaced refls)
   where
     (defs, refls) = unzip $ map todocument (nonlists ++ lists)
     (lists, nonlists) = partition (\(cat, _) ->
         case cat of ListCat _ -> True; _ -> False) $ Data.Map.toList
       $ mergeCoercCats $ groupedRules
-    listPredef listCatName = "struct " ++ listCatName ++ ";"
-    predefs = linesToText $ map (listPredef . catNameNoCoerc . fst) lists
     todocument (cat, rules) =
       let name = catNameNoCoerc cat
       in  case cat of
