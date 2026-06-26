@@ -144,10 +144,10 @@ headerTokens cf = (vcatSpaced structs, vcatSpaced reflections)
     litTokens = map makeLitToken (literals cf)
     userTokens = map (makeUserToken . wpThing) $
       [name | TokenReg name _ _ <- cfgPragmas cf]
-    makeLitToken "Char" = tokenStructHeader "Char" "char"
+    makeLitToken "Char" = tokenStructHeader "Char" "int32_t"
     makeLitToken "String" =
       tokenStructWithRefConstructorsHeader "String" "std::string"
-    makeLitToken "Integer" = tokenStructHeader "Integer" "int"
+    makeLitToken "Integer" = tokenStructHeader "Integer" "long"
     makeLitToken "Double" = tokenStructHeader "Double" "double"
     makeLitToken s = -- Ident
       tokenStructWithRefConstructorsHeader s "std::string"
@@ -161,10 +161,10 @@ implTokens cf = vcatSpaced $ litTokens ++ userTokens
     litTokens = map makeLitToken (literals cf)
     userTokens = map (makeUserToken . wpThing) $
       [name | TokenReg name _ _ <- cfgPragmas cf]
-    makeLitToken s@"Char" = tokenStructImpl s "char"
+    makeLitToken s@"Char" = tokenStructImpl s "int32_t"
     makeLitToken s@"String" =
       tokenStructWithRefConstructorsImpl s "std::string"
-    makeLitToken s@"Integer" = tokenStructImpl s "int"
+    makeLitToken s@"Integer" = tokenStructImpl s "long"
     makeLitToken s@"Double" = tokenStructImpl s "double"
     makeLitToken s = tokenStructWithRefConstructorsImpl s "std::string"
     makeUserToken s = tokenStructWithRefConstructorsImpl s "std::string"
