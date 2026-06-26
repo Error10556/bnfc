@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (help) {
-        cerr << "Sample syntax parser.\nUsage: \n"
+        cerr << "Example syntax parser.\nUsage: \n"
              << argv[0] << " (OPTION|FILE)... [-- FILE...]\n";
         cerr << R"%(
 Options:
