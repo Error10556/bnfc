@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes #-}
 module BNFC.Backend.CPPVar.SyntaxPrinterGen
   ( syntaxPrinterHppFilename
   , syntaxPrinterCppFilename
@@ -8,6 +9,7 @@ import qualified BNFC.CF
 import qualified BNFC.Options
 import Text.PrettyPrint
 import BNFC.Backend.CPPVar.PrinterUtils
+import Data.String.QQ (s)
 
 syntaxPrinterHppFilename :: String
 syntaxPrinterHppFilename = "SyntaxPrinter.hpp"
@@ -27,6 +29,7 @@ makeSyntaxPrinter opts printable = (hpp, cpp)
       , "#include \"Absyn.hpp\""
       ] $++$ packwrap (printerClassDecl printable)
     cpp = text "#include \"SyntaxPrinter.hpp\""
+      $++$ text "#include \"PrinterCommon.hpp\""
       $++$ packwrap (printerImpl printable)
     packwrap = wrapPackage opts
 
@@ -59,6 +62,10 @@ printerClassDecl symbols = linesToText
       ListCategory {printListName = name} -> make name
       FunctionRule rule -> make $ BNFC.CF.funName rule
       Ident -> make BNFC.CF.catIdent
+      String -> make BNFC.CF.catString
+      Double -> make BNFC.CF.catDouble
+      Integer -> make BNFC.CF.catInteger
+      Char -> make BNFC.CF.catChar
       where
         make s = makeShiftLRaw $ concat ["const ", s, "&"]
 
@@ -120,10 +127,32 @@ printerImpl symbols = linesToText
         , "}"
         , "std::visit(SyntaxPrinter(this, false), v.back());"
         ]
-      Ident -> linesToText
-        [ "PrintIndentForHeader();"
-        , "out << \"Ident {\" << v.Value << \"}\\n\";"
-        ]
+      Ident -> unlinesToText [s|
+PrintIndentForHeader();
+out << "Ident {" << v.Value << "}\n";
+|]
+      String -> unlinesToText [s|
+PrintIndentForHeader();
+out << "String ";
+PrintEscapedString(out, v.Value);
+out << '\n';
+|]
+      Integer -> unlinesToText [s|
+PrintIndentForHeader();
+out << "Integer " << v.Value << '\n';
+|]
+      Double -> unlinesToText [s|
+PrintIndentForHeader();
+out << "Double ";
+PrintDouble(out, v.Value);
+out << '\n';
+|]
+      Char -> unlinesToText [s|
+PrintIndentForHeader();
+out << "Char ";
+PrintEscapedChar(out, v.Value);
+out << '\n';
+|]
       FunctionRule r -> linesToText
         [ "PrintIndentForHeader();"
         , "out << \"" ++ BNFC.CF.funName r ++ "\\n\";"
