@@ -22,7 +22,7 @@ makePrinterCommonHpp opts = linesToText
   [ "#pragma once"
   , "#include <ostream>"
   , "#include <string>"
-  ] $++$ wrapPackage opts (linesToText $ lines [s|
+  ] $++$ wrapPackage opts (unlinesToText [s|
 void PrintEscapedCharRaw(std::ostream& out, int32_t ch);
 
 // As PrintEscapedCharRaw for each character,
@@ -43,7 +43,7 @@ makePrinterCommonCpp opts = linesToText (lines $ [s|
 #include <charconv>
 #include <string_view>
 #include <system_error>
-|]) $++$ wrapPackage opts (linesToText $ lines [s|
+|]) $++$ wrapPackage opts (unlinesToText [s|
 void PrintEscapedCharRaw(std::ostream& out, int32_t ch) {
     switch (ch) {
         case '\0':

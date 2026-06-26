@@ -65,7 +65,7 @@ literalTokenConditions cf =
 
 literalTokenUtils :: CF -> Doc
 literalTokenUtils cf =
-  (if catChar `elem` cfgLiterals cf then (linesToText $ lines [s|
+  (if catChar `elem` cfgLiterals cf then (unlinesToText [s|
 inline int hexDigitValue(char ch) {
     if ('0' <= ch && ch <= '9') return ch - '0';
     if ('a' <= ch && ch <= 'f') return ch - 'a' + 10;
@@ -99,7 +99,7 @@ inline int32_t bitSegment(int shiftr, int masklen, int32_t val) {
 }
 |]) else empty)
 
-  $++$ (if catString `elem` cfgLiterals cf then (linesToText $ lines [s|
+  $++$ (if catString `elem` cfgLiterals cf then (unlinesToText [s|
 inline void encodeUTF8(std::string& dest, int32_t ch) {
     if (ch < 0) {
         dest.push_back(0xFF);
@@ -147,7 +147,7 @@ defIdent opts cf = if catIdent `elem` cfgLiterals cf
 
 defString :: SharedOptions -> CF -> Doc
 defString _ cf = if catString `elem` cfgLiterals cf
-  then (linesToText $ lines [s|
+  then (unlinesToText [s|
     /* String */
 <INITIAL>\" BEGIN(STRING); yyextra->clear();
 <STRING>\" BEGIN(INITIAL); return LC::Parser::make_STRING(*yyextra);
@@ -170,7 +170,7 @@ defString _ cf = if catString `elem` cfgLiterals cf
 
 defDouble :: SharedOptions -> CF -> Doc
 defDouble _ cf = if catDouble `elem` cfgLiterals cf
-  then (linesToText $ lines [s|
+  then (unlinesToText [s|
     /* Double */
 <INITIAL>[+\-]?[0-9]+(\.[0-9]+)?([eE][+\-]?[0-9]+)? {
         const char* const start = yytext + (*yytext == '+');
@@ -186,7 +186,7 @@ defDouble _ cf = if catDouble `elem` cfgLiterals cf
 
 defInteger :: SharedOptions -> CF -> Doc
 defInteger _ cf = if catInteger `elem` cfgLiterals cf
-  then (linesToText $ lines [s|
+  then (unlinesToText [s|
     /* Integer (must be above Double) */
 <INITIAL>[+\-]?[0-9]+ {
         const char* const start = yytext + (*yytext == '+');
@@ -202,7 +202,7 @@ defInteger _ cf = if catInteger `elem` cfgLiterals cf
 
 defChar :: SharedOptions -> CF -> Doc
 defChar _ cf = if catChar `elem` cfgLiterals cf
-  then (linesToText $ lines [s|
+  then (unlinesToText [s|
     /* Char in UTF-8 */
 <INITIAL>' BEGIN(CHAR);
 <CHAR>\\0' BEGIN(INITIAL); return LC::Parser::make_CHAR('\0');

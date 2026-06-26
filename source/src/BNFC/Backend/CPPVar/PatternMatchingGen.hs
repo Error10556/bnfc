@@ -11,7 +11,7 @@ patternMatchingFilename :: String
 patternMatchingFilename = "PatternMatching.hpp"
 
 patternMatchingHpp :: Doc
-patternMatchingHpp = linesToText $ lines [s|
+patternMatchingHpp = unlinesToText [s|
 /************************** Pattern Matching for C++ ***************************
 * You are highly encouraged to include this file to enable the following syntax:
 

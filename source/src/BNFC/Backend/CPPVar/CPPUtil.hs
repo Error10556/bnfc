@@ -4,6 +4,7 @@ module BNFC.Backend.CPPVar.CPPUtil
   , wrapPackage
   , vcatSpaced
   , linesToText
+  , unlinesToText
   , groupRules
   , catNameNoCoerc
   , catNameWithCoerc
@@ -42,6 +43,9 @@ wrapPackage opts = maybe id wrapNamespace (BNFC.Options.inPackage opts)
 
 linesToText :: [String] -> Doc
 linesToText = foldr ($+$) empty . map text
+
+unlinesToText :: String -> Doc
+unlinesToText = linesToText . lines
 
 type GroupedRules = Data.Map.Map Cat [Rule]
 

@@ -15,7 +15,7 @@ makeTest opts = let
     ns = case inPackage opts of
       Nothing -> ""
       Just name -> name ++ "::"
-  in linesToText $ lines [s|
+  in unlinesToText [s|
 #include <cstring>
 #include <vector>
 
@@ -113,7 +113,7 @@ Options:
         }
         cout << filename << '\n';
 
-|] ++
+|] $+$ linesToText
   [ "        " ++ ns ++ "ParseProgram(file) | PatternMatch{"
   , "            [&](" ++ ns ++ "Parser::syntax_error&& err) {"
   , "                cout << \"Could not parse!\\nError: \" "
@@ -127,7 +127,7 @@ Options:
   , "                }"
   , "                if (pretty) {"
   , "                    p | " ++ ns ++ "PrettyPrinter(cout);"
-  ] ++ lines [s|
+  ] $+$ unlinesToText [s|
                     cout << "\n\n";
                 }
                 if (!tree && !pretty) cout << "OK\n\n";

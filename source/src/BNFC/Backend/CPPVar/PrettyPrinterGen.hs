@@ -18,9 +18,6 @@ prettyPrinterHppFilename = "PrettyPrinter.hpp"
 prettyPrinterCppFilename :: String
 prettyPrinterCppFilename = "PrettyPrinter.cpp"
 
-unlinesToText :: String -> Doc
-unlinesToText = linesToText . lines
-
 -- | -> (hpp, cpp)
 makePrettyPrinter :: BNFC.Options.SharedOptions -> [PrintableSymbol]
   -> (Doc, Doc)
@@ -232,6 +229,9 @@ void PrettyPrinter::operator()(const Ident& v) const {
 }
 |]
 
+methodString :: Doc
+methodString = unlinesToText
+
 methodCategory :: String -> Doc
 methodCategory name = linesToText
   [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
@@ -357,6 +357,10 @@ makeMethod = \case
     } -> methodList name itemcoerc empty cons single
   FunctionRule r -> methodFunctionRule r
   Ident -> methodIdent
+  String -> methodString
+  Integer -> methodInteger
+  Char -> methodChar
+  Double -> methodDouble
 
 operatorShLImpl :: [PrintableSymbol] -> Doc
 operatorShLImpl printables = unlinesToText [s|
