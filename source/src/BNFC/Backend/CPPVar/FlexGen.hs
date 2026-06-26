@@ -272,9 +272,10 @@ flexHead opts cf = (linesToText $
   [ "%option outfile=\"" ++ lang opts ++ ".lex.cpp\""
   , ""
   , "%{"
-  , "#include <string>"
-  , "#include <system_error>"
+  ] ++ (if useCharconv then ["#include <charconv>"] else []) ++
+  [ "#include <string>"
   , "#include <string_view>"
+  , "#include <system_error>"
   , "#include \"" ++ lang opts ++ ".tab.hpp\""
   , ""
   , "#define YY_DECL " ++ bisonParserName opts
@@ -285,6 +286,8 @@ flexHead opts cf = (linesToText $
   , "%option extra-type=\"std::string*\""
   ]
   where
+    useCharconv = catInteger `elem` cfgLiterals cf
+      || catDouble `elem` cfgLiterals cf
     maybePrefix = case inPackage opts of
       Nothing -> ""
       Just s -> s
