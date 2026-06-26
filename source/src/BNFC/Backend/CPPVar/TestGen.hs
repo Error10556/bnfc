@@ -5,12 +5,17 @@ module BNFC.Backend.CPPVar.TestGen (testFilename, makeTest) where
 import BNFC.Backend.CPPVar.CPPUtil
 import Text.PrettyPrint
 import Data.String.QQ
+import BNFC.Options (SharedOptions, inPackage)
 
 testFilename :: String
 testFilename = "Test.cpp"
 
-makeTest :: Doc
-makeTest = linesToText $ lines [s|
+makeTest :: SharedOptions -> Doc
+makeTest opts = let
+    ns = case inPackage opts of
+      Nothing -> ""
+      Just name -> name ++ "::"
+  in linesToText $ lines [s|
 #include <cstring>
 #include <vector>
 
@@ -108,18 +113,21 @@ Options:
         }
         cout << filename << '\n';
 
-        LC::ParseProgram(file) | PatternMatch{
-            [&](LC::Parser::syntax_error&& err) {
-                cout << "Could not parse!\nError: " << err.what() << "\n\n";
-                return;
-            },
-            [&](LC::Program&& p) {
-                if (tree) {
-                    p | LC::SyntaxPrinter(cout);
-                    cout << '\n';
-                }
-                if (pretty) {
-                    p | LC::PrettyPrinter(cout);
+|] ++
+  [ "        " ++ ns ++ "ParseProgram(file) | PatternMatch{"
+  , "            [&](" ++ ns ++ "Parser::syntax_error&& err) {"
+  , "                cout << \"Could not parse!\\nError: \" "
+    ++ "<< err.what() << \"\\n\\n\";"
+  , "                return;"
+  , "            },"
+  , "            [&](" ++ ns ++ "Program&& p) {"
+  , "                if (tree) {"
+  , "                    p | " ++ ns ++ "SyntaxPrinter(cout);"
+  , "                    cout << '\\n';"
+  , "                }"
+  , "                if (pretty) {"
+  , "                    p | " ++ ns ++ "PrettyPrinter(cout);"
+  ] ++ lines [s|
                     cout << "\n\n";
                 }
                 if (!tree && !pretty) cout << "OK\n\n";

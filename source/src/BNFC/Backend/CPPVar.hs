@@ -39,4 +39,4 @@ makeCppVar opts cf = do
     mkfile syntaxPrinterCppFilename comment syntaxCpp
     mkfile prettyPrinterHppFilename comment prettyHpp
     mkfile prettyPrinterCppFilename comment prettyCpp
-    mkfile testFilename comment makeTest
+    mkfile testFilename comment (makeTest opts)
