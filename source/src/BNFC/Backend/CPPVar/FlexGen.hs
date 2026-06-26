@@ -146,11 +146,13 @@ defIdent opts cf = if catIdent `elem` cfgLiterals cf
   else empty
 
 defString :: SharedOptions -> CF -> Doc
-defString _ cf = if catString `elem` cfgLiterals cf
+defString opts cf = if catString `elem` cfgLiterals cf
   then (unlinesToText [s|
     /* String */
 <INITIAL>\" BEGIN(STRING); yyextra->clear();
-<STRING>\" BEGIN(INITIAL); return LC::Parser::make_STRING(*yyextra);
+|] $+$ text ("<STRING>\\\" BEGIN(INITIAL); return "
+    ++ bisonParserName opts ++ "::make_STRING(*yyextra);")
+  $+$ [s|
 <STRING>\\ BEGIN(ESCAPE);
 <STRING>. yyextra->push_back(*yytext);
 <ESCAPE>0 BEGIN(STRING); yyextra->push_back('\0');
@@ -169,7 +171,7 @@ defString _ cf = if catString `elem` cfgLiterals cf
 |]) else empty
 
 defDouble :: SharedOptions -> CF -> Doc
-defDouble _ cf = if catDouble `elem` cfgLiterals cf
+defDouble opts cf = if catDouble `elem` cfgLiterals cf
   then (unlinesToText [s|
     /* Double */
 <INITIAL>[+\-]?[0-9]+(\.[0-9]+)?([eE][+\-]?[0-9]+)? {
@@ -178,14 +180,15 @@ defDouble _ cf = if catDouble `elem` cfgLiterals cf
         double num;
         auto res = std::from_chars(start, end, num);
         if (res.ec == std::errc() && res.ptr == end)
-            return LC::Parser::make_DOUBLE(num);
-        else
-            return LC::Parser::make_YYerror();
-    }
-|]) else empty
+|] $+$ linesToText
+    [ "            return " ++ bisonParserName opts ++ "::make_DOUBLE(num);"
+    , "        else"
+    , "            return " ++ bisonParserName opts ++ "::make_YYerror();"
+    , "    }"
+    ]) else empty
 
 defInteger :: SharedOptions -> CF -> Doc
-defInteger _ cf = if catInteger `elem` cfgLiterals cf
+defInteger opts cf = if catInteger `elem` cfgLiterals cf
   then (unlinesToText [s|
     /* Integer (must be above Double) */
 <INITIAL>[+\-]?[0-9]+ {
@@ -194,42 +197,44 @@ defInteger _ cf = if catInteger `elem` cfgLiterals cf
         long num;
         auto res = std::from_chars(start, end, num);
         if (res.ec == std::errc() && res.ptr == end)
-            return LC::Parser::make_INTEGER(num);
-        else
-            return LC::Parser::make_YYerror();
-    }
-|]) else empty
+|] $+$ linesToText
+    [ "            return " ++ bisonParserName opts ++ "::make_INTEGER(num);"
+    , "        else"
+    , "            return " ++ bisonParserName opts ++ "::make_YYerror();"
+    , "    }"
+    ]) else empty
 
 defChar :: SharedOptions -> CF -> Doc
-defChar _ cf = if catChar `elem` cfgLiterals cf
-  then (unlinesToText [s|
-    /* Char in UTF-8 */
-<INITIAL>' BEGIN(CHAR);
-<CHAR>\\0' BEGIN(INITIAL); return LC::Parser::make_CHAR('\0');
-<CHAR>\\a' BEGIN(INITIAL); return LC::Parser::make_CHAR('\a');
-<CHAR>\\b' BEGIN(INITIAL); return LC::Parser::make_CHAR('\b');
-<CHAR>\\f' BEGIN(INITIAL); return LC::Parser::make_CHAR('\f');
-<CHAR>\\n' BEGIN(INITIAL); return LC::Parser::make_CHAR('\n');
-<CHAR>\\r' BEGIN(INITIAL); return LC::Parser::make_CHAR('\r');
-<CHAR>\\t' BEGIN(INITIAL); return LC::Parser::make_CHAR('\t');
-<CHAR>\\v' BEGIN(INITIAL); return LC::Parser::make_CHAR('\v');
-<CHAR>\\x{HEXINT}' {
-        BEGIN(INITIAL);
-        return LC::Parser::make_CHAR(hexInt32(yytext + 2, yyleng - 2));
-    }
-<CHAR>\\({UTF8MULTICHAR}|.)' {
-        BEGIN(INITIAL);
-        int32_t charcode = decodeUTF8(yytext + 1, yyleng - 2);
-        if (charcode == -1) return LC::Parser::make_YYerror();
-        return LC::Parser::make_CHAR(charcode);
-    }
-<CHAR>({UTF8MULTICHAR}|[^'\\\n])' {
-        BEGIN(INITIAL);
-        int32_t charcode = decodeUTF8(yytext, yyleng - 1);
-        if (charcode == -1) return LC::Parser::make_YYerror();
-        return LC::Parser::make_CHAR(charcode);
-    }
-|]) else empty
+defChar opts cf = if catChar `elem` cfgLiterals cf
+  then linesToText (
+    [ "    /* Char in UTF-8 */"
+    , "<INITIAL>' BEGIN(CHAR);"
+    ] ++ map simpleEscape "0abfnrtv" ++
+    [ "<CHAR>\\x{HEXINT}' {"
+    , "        BEGIN(INITIAL);"
+    , "        return " ++ bisonParserName opts
+      ++ "::make_CHAR(hexInt32(yytext + 2, yyleng - 2));"
+    , "    }"
+    , "<CHAR>\\({UTF8MULTICHAR}|.)' {"
+    , "        BEGIN(INITIAL);"
+    , "        int32_t charcode = decodeUTF8(yytext + 1, yyleng - 2);"
+    , "        if (charcode == -1) return " ++ bisonParserName opts
+      ++ "::make_YYerror();"
+    , "        return " ++ bisonParserName opts
+      ++ "::make_CHAR(charcode);"
+    , "    }"
+    , "<CHAR>({UTF8MULTICHAR}|[^'\\\n])' {"
+    , "        BEGIN(INITIAL);"
+    , "        int32_t charcode = decodeUTF8(yytext, yyleng - 1);"
+    , "        if (charcode == -1) return " ++ bisonParserName opts
+      ++ "::make_YYerror();"
+    , "        return " ++ bisonParserName opts ++ "::make_CHAR(charcode);"
+    , "    }"
+    ]) else empty
+  where
+    simpleEscape ch = concat
+      [ "<CHAR>\\\\", [ch] , "' BEGIN(INITIAL); return "
+      , bisonParserName opts , "::make_CHAR('\\" , [ch], "');"]
 
 nameAllTokens :: CF -> Data.Map.Map String String
 nameAllTokens cf = helper 1 (cfgKeywords cf ++ cfgSymbols cf)
