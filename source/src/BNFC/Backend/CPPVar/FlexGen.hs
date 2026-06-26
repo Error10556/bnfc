@@ -1,4 +1,4 @@
-{- HLINT ignore "Use zipWith" -}
+{-# LANGUAGE QuasiQuotes #-}
 module BNFC.Backend.CPPVar.FlexGen (flexFilename, makeFlex, scannerDecl) where
 
 import Prelude hiding ((<>))
@@ -12,23 +12,26 @@ import qualified Data.Map
 import Data.Char (ord)
 import BNFC.Utils (symbolToName, uncurry3)
 import Data.Maybe (fromMaybe)
+import Data.String.QQ (s)
 
 flexFilename :: SharedOptions -> String
 flexFilename = (++".l") . lang
 
 -- | -> (The file contents, names of all tokens)
 makeFlex :: SharedOptions -> CF -> (Doc, Data.Map.Map String String)
-makeFlex opts cf = (flexHead opts
+makeFlex opts cf = (flexHead opts cf
   $++$ bcommConditions
+  $+$ literalTokenConditions cf
+  $++$ literalTokenRegexDefs cf
   $++$ text "%%"
   $++$ bcommRules $++$ oneLineComments cf
   -- token rules here
   $++$ defImplicitTokens opts tkNames
   $++$ defString opts cf
-  $+$ defDouble opts cf
-  $+$ defInteger opts cf
-  $+$ defChar opts cf
-  $+$ defIdent opts cf
+  $++$ defChar opts cf
+  $++$ defInteger opts cf
+  $++$ defDouble opts cf
+  $++$ defIdent opts cf
   $++$ text "<INITIAL>[\\t\\n\\f\\r\\x20]+ /* whitespace */;"
   $+$ text ("<INITIAL><<EOF>> return " ++ bisonParserName opts
     ++ "::make_YYEOF();")
@@ -53,32 +56,180 @@ bisonParserName opts = case inPackage opts of
   Nothing -> "Parser"
   Just ns -> ns ++ "::Parser"
 
--- | empty if unused
+literalTokenConditions :: CF -> Doc
+literalTokenConditions cf =
+  (if BNFC.CF.catString `elem` BNFC.CF.cfgLiterals cf
+    then text "%x STRING ESCAPE" else empty)
+  $+$ (if BNFC.CF.catChar `elem` BNFC.CF.cfgLiterals cf
+    then text "%x CHAR" else empty)
+
+literalTokenUtils :: CF -> Doc
+literalTokenUtils cf =
+  (if catChar `elem` cfgLiterals cf then (linesToText $ lines [s|
+inline int hexDigitValue(char ch) {
+    if ('0' <= ch && ch <= '9') return ch - '0';
+    if ('a' <= ch && ch <= 'f') return ch - 'a' + 10;
+    if ('A' <= ch && ch <= 'F') return ch - 'A' + 10;
+    return 0;
+}
+
+inline int32_t hexInt32(const char* start, int len) {
+    int32_t val = 0;
+    for (int i = 0; i < len; i++) val = (val << 4) | hexDigitValue(start[i]);
+    return val;
+}
+
+inline int32_t minCharForEncodedLen(int len) {
+    if (len < 2) return 0;
+    if (len == 2) return 0x80;
+    return static_cast<int32_t>(1) << (11 + 5 * (len - 3));
+}
+
+    /* returns -1 if a character uses a non-minimal # of bytes */
+inline int decodeUTF8(const char* start, int len) {
+    if (len == 1) return *start;
+    int firstbits = 7 - len;
+    int32_t res = *start & ((1 << firstbits) - 1);
+    for (int i = 1; i < len; i++) res = (res << 6) | (start[i] & 0x3f);
+    return res >= minCharForEncodedLen(len) ? res : -1;
+}
+
+inline int32_t bitSegment(int shiftr, int masklen, int32_t val) {
+    return (val >> shiftr) & ((static_cast<int32_t>(1) << masklen) - 1);
+}
+|]) else empty)
+
+  $++$ (if catString `elem` cfgLiterals cf then (linesToText $ lines [s|
+inline void encodeUTF8(std::string& dest, int32_t ch) {
+    if (ch < 0) {
+        dest.push_back(0xFF);
+        return;
+    }
+    if (ch <= 0x7F) {
+        dest.push_back(static_cast<char>(ch));
+        return;
+    }
+    char buf[7];
+    int sz = 0;
+    while (ch) {
+        buf[sz++] = ch & 0x3F;
+        ch >>= 6;
+    }
+    sz += (static_cast<int>(buf[sz - 1]) >= 1 << (8 - sz - 1));
+    buf[sz] = 0;
+    for (int i = 0, j = sz - 1; i < j; ++i, --j) std::swap(buf[i], buf[j]);
+    buf[0] |= static_cast<char>(0xFF << (8 - sz));
+    for (int i = 1; i < sz; i++) buf[i] |= 0x80;
+    dest.append(buf);
+}
+|]) else empty)
+
+literalTokenRegexDefs :: CF -> Doc
+literalTokenRegexDefs cf = let
+    hasChar = BNFC.CF.catChar `elem` BNFC.CF.cfgLiterals cf
+  in (if BNFC.CF.catString `elem` BNFC.CF.cfgLiterals cf || hasChar
+    then text "HEXINT [0-7][0-9a-fA-F]{7}|[0-9a-fA-F]{1,7}" else empty)
+  $++$ (if hasChar then linesToText
+    [ "    /* 2-6 bytes. Does not handle the [\x00-\x7F] case."
+    , "     * This regex permits non-minimal-length encodings,"
+    , "     * but they are rejected in decodeUTF8."
+    , "     */"
+    , "UTF8MULTICHAR [\\xC0-\\xDF][\\x80-\\xBF]|[\\xE0-\\xEF][\\x80-\\xBF]{2}"
+      ++ "|[\\xF0-\\xF7][\\x80-\\xBF]{3}|[\\xF8-\\xFB][\\x80-\\xBF]{4}"
+      ++ "|[\\xFC-\\xFD][\\x80-\\xBF]{5}"
+    ] else empty)
+
 defIdent :: SharedOptions -> CF -> Doc
-defIdent opts cf = if TokenCat catIdent `elem` cfgUsedCats cf
+defIdent opts cf = if catIdent `elem` cfgLiterals cf
   then text $ "<INITIAL>[a-zA-Z_][a-zA-Z0-9_]* return "
     ++ bisonParserName opts ++ "::make_IDENT(yytext);"
   else empty
 
 defString :: SharedOptions -> CF -> Doc
-defString _ cf = if TokenCat catString `elem` cfgUsedCats cf
-  then error "String token is unsupported at the moment"
-  else empty
+defString _ cf = if catString `elem` cfgLiterals cf
+  then (linesToText $ lines [s|
+    /* String */
+<INITIAL>\" BEGIN(STRING); yyextra->clear();
+<STRING>\" BEGIN(INITIAL); return LC::Parser::make_STRING(*yyextra);
+<STRING>\\ BEGIN(ESCAPE);
+<STRING>. yyextra->push_back(*yytext);
+<ESCAPE>0 BEGIN(STRING); yyextra->push_back('\0');
+<ESCAPE>a BEGIN(STRING); yyextra->push_back('\a');
+<ESCAPE>b BEGIN(STRING); yyextra->push_back('\b');
+<ESCAPE>f BEGIN(STRING); yyextra->push_back('\f');
+<ESCAPE>n BEGIN(STRING); yyextra->push_back('\n');
+<ESCAPE>r BEGIN(STRING); yyextra->push_back('\r');
+<ESCAPE>t BEGIN(STRING); yyextra->push_back('\t');
+<ESCAPE>v BEGIN(STRING); yyextra->push_back('\v');
+<ESCAPE>x{HEXINT} {
+        BEGIN(STRING);
+        encodeUTF8(*yyextra, hexInt32(yytext + 1, yyleng - 1));
+    }
+<ESCAPE>. BEGIN(STRING); yyextra->push_back(*yytext);
+|]) else empty
 
 defDouble :: SharedOptions -> CF -> Doc
-defDouble _ cf = if TokenCat catDouble `elem` cfgUsedCats cf
-  then error "Double token is unsupported at the moment"
-  else empty
+defDouble _ cf = if catDouble `elem` cfgLiterals cf
+  then (linesToText $ lines [s|
+    /* Double */
+<INITIAL>[+\-]?[0-9]+(\.[0-9]+)?([eE][+\-]?[0-9]+)? {
+        const char* const start = yytext + (*yytext == '+');
+        const char* const end = yytext + yyleng;
+        double num;
+        auto res = std::from_chars(start, end, num);
+        if (res.ec == std::errc() && res.ptr == end)
+            return LC::Parser::make_DOUBLE(num);
+        else
+            return LC::Parser::make_YYerror();
+    }
+|]) else empty
 
 defInteger :: SharedOptions -> CF -> Doc
-defInteger _ cf = if TokenCat catInteger `elem` cfgUsedCats cf
-  then error "Integer token is unsupported at the moment"
-  else empty
+defInteger _ cf = if catInteger `elem` cfgLiterals cf
+  then (linesToText $ lines [s|
+    /* Integer (must be above Double) */
+<INITIAL>[+\-]?[0-9]+ {
+        const char* const start = yytext + (*yytext == '+');
+        const char* const end = yytext + yyleng;
+        long num;
+        auto res = std::from_chars(start, end, num);
+        if (res.ec == std::errc() && res.ptr == end)
+            return LC::Parser::make_INTEGER(num);
+        else
+            return LC::Parser::make_YYerror();
+    }
+|]) else empty
 
 defChar :: SharedOptions -> CF -> Doc
-defChar _ cf = if TokenCat catChar `elem` cfgUsedCats cf
-  then error "Char token is unsupported at the moment"
-  else empty
+defChar _ cf = if catChar `elem` cfgLiterals cf
+  then (linesToText $ lines [s|
+    /* Char in UTF-8 */
+<INITIAL>' BEGIN(CHAR);
+<CHAR>\\0' BEGIN(INITIAL); return LC::Parser::make_CHAR('\0');
+<CHAR>\\a' BEGIN(INITIAL); return LC::Parser::make_CHAR('\a');
+<CHAR>\\b' BEGIN(INITIAL); return LC::Parser::make_CHAR('\b');
+<CHAR>\\f' BEGIN(INITIAL); return LC::Parser::make_CHAR('\f');
+<CHAR>\\n' BEGIN(INITIAL); return LC::Parser::make_CHAR('\n');
+<CHAR>\\r' BEGIN(INITIAL); return LC::Parser::make_CHAR('\r');
+<CHAR>\\t' BEGIN(INITIAL); return LC::Parser::make_CHAR('\t');
+<CHAR>\\v' BEGIN(INITIAL); return LC::Parser::make_CHAR('\v');
+<CHAR>\\x{HEXINT}' {
+        BEGIN(INITIAL);
+        return LC::Parser::make_CHAR(hexInt32(yytext + 2, yyleng - 2));
+    }
+<CHAR>\\({UTF8MULTICHAR}|.)' {
+        BEGIN(INITIAL);
+        int32_t charcode = decodeUTF8(yytext + 1, yyleng - 2);
+        if (charcode == -1) return LC::Parser::make_YYerror();
+        return LC::Parser::make_CHAR(charcode);
+    }
+<CHAR>({UTF8MULTICHAR}|[^'\\\n])' {
+        BEGIN(INITIAL);
+        int32_t charcode = decodeUTF8(yytext, yyleng - 1);
+        if (charcode == -1) return LC::Parser::make_YYerror();
+        return LC::Parser::make_CHAR(charcode);
+    }
+|]) else empty
 
 nameAllTokens :: CF -> Data.Map.Map String String
 nameAllTokens cf = helper 1 (cfgKeywords cf ++ cfgSymbols cf)
@@ -105,8 +256,8 @@ isCIdent = \case
       digit ch = ord '0' <= o && o <= ord '9'
         where o = ord ch
 
-flexHead :: SharedOptions -> Doc
-flexHead opts = linesToText $
+flexHead :: SharedOptions -> CF -> Doc
+flexHead opts cf = (linesToText $
   [ "%option warn nodefault"
   , "%option 8bit reentrant"
   , "%option noyywrap"
@@ -123,8 +274,8 @@ flexHead opts = linesToText $
   , ""
   , "#define YY_DECL " ++ bisonParserName opts
     ++ "::symbol_type " ++ maybePrefix ++ "lex(yyscan_t yyscanner)"
-  , ""
-  , "%}"
+  ]) $++$ literalTokenUtils cf $++$ linesToText
+  [ "%}"
   , ""
   , "%option extra-type=\"std::string*\""
   ]
