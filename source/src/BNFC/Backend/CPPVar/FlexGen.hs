@@ -35,7 +35,7 @@ makeFlex opts cf = (flexHead opts cf
   $++$ text "<INITIAL>[\\t\\n\\f\\r\\x20]+ /* whitespace */;"
   $+$ text ("<INITIAL><<EOF>> return " ++ bisonParserName opts
     ++ "::make_YYEOF();")
-  $+$ text ("<INITIAL>. return " ++ bisonParserName opts
+  $++$ text ("[\\x00-\\xff] return " ++ bisonParserName opts
     ++ "::make_YYerror();")
   $++$ text "%%"
   $++$ maybeWrapNamespace (scannerDecl opts $++$ scannerImpl opts)
@@ -59,9 +59,9 @@ bisonParserName opts = case inPackage opts of
 literalTokenConditions :: CF -> Doc
 literalTokenConditions cf =
   (if BNFC.CF.catString `elem` BNFC.CF.cfgLiterals cf
-    then text "%x STRING ESCAPE" else empty)
+    then text "%s STRING ESCAPE" else empty)
   $+$ (if BNFC.CF.catChar `elem` BNFC.CF.cfgLiterals cf
-    then text "%x CHAR" else empty)
+    then text "%s CHAR" else empty)
 
 literalTokenUtils :: CF -> Doc
 literalTokenUtils cf =
@@ -300,7 +300,7 @@ oneLineComments cf = foldr ($+$) empty
 -- | (start condition declarations, rules)
 commentBlocks :: CF -> (Doc, Doc)
 commentBlocks cf =
-  ( linesToText . map (("%x COMMENT"++) . show) $ [1..length docs]
+  ( linesToText . map (("%s COMMENT"++) . show) $ [1..length docs]
   , vcatSpaced docs )
   where
     makeRules :: Int -> String -> String -> Doc
