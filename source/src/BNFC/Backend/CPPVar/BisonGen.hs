@@ -62,7 +62,8 @@ bisonHeader opts = linesToText
   ]
 
 data BisonUtils = BisonUtils
-  { namespaceWrap :: Doc -> Doc
+  { inPackage :: Bool
+  , namespaceWrap :: Doc -> Doc
   , namespaceNameOrEmpty :: String
   , namespacePrefix :: String
   }
@@ -70,12 +71,14 @@ data BisonUtils = BisonUtils
 newBisonUtils :: BNFC.Options.SharedOptions -> BisonUtils
 newBisonUtils opts = case BNFC.Options.inPackage opts of
   Nothing -> BisonUtils
-    { namespaceWrap = id
+    { inPackage = False
+    , namespaceWrap = id
     , namespaceNameOrEmpty = ""
     , namespacePrefix = ""
     }
   Just ns -> BisonUtils
-    { namespaceWrap = bisonBraces ("namespace " ++ ns)
+    { inPackage = True
+    , namespaceWrap = bisonBraces ("namespace " ++ ns)
     , namespaceNameOrEmpty = ns
     , namespacePrefix = ns ++ "::"
     }
@@ -114,13 +117,18 @@ nonterms rules = linesToText $ map nonterm $ Data.Map.keys rules
 
 codeProvides :: BisonUtils -> [BNFC.CF.Cat] -> Doc
 codeProvides utils entrypoints = bisonBraces "%code provides"
-  $ namespaceWrap utils $ linesToText
+  $ namespaceWrap utils $ maybeImportParserClass $+$ linesToText
   [ "using ParseResultOrError ="
   , "    std::variant<ParseResultVariant, Parser::syntax_error>;"
   , "ParseResultOrError Parse(FILE* file);"
   , "ParseResultOrError Parse(std::string_view str);"
   ] $+$ foldr ($+$) empty (map entrypoint entrypoints)
   where
+    -- | Bison generates the parser class in the `yy` namespace when no custom
+    -- package name is provided. If we want the BNFC-generated parser to be
+    -- contained in the global namespace, we have to add this line:
+    maybeImportParserClass = if inPackage utils then empty else
+      text "using yy::Parser;"
     entrypoint cat = linesToText
       [ funcName ++ "(FILE* file);"
       , funcName ++ "(std::string_view str);"
