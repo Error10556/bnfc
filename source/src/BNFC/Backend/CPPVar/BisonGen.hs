@@ -1,4 +1,3 @@
-{- HLINT ignore "Fuse foldr/map" -}
 module BNFC.Backend.CPPVar.BisonGen (bisonFilename, makeBison) where
 
 import qualified BNFC.Options
@@ -28,7 +27,7 @@ makeBison opts cf implicitTokenNames groupedRules =
     $++$ vcatSpaced (map (uncurry $ category implicitTokenNames)
             $ Data.Map.toList groupedRules)
     $++$ text "%%"
-    $++$ codeSection opts entrypoints
+    $++$ codeSection utils opts entrypoints
     where
         utils = newBisonUtils opts
         entrypoints = extractEntrypoints cf groupedRules
@@ -237,10 +236,10 @@ category implicitTokenNames cat rules = case cat of
         rhsObjectIndices :: BNFC.CF.SentForm -> [Int]
         rhsObjectIndices rhs = [i | (Left _, i) <- zip rhs [1..]]
 
-codeSection :: BNFC.Options.SharedOptions -> [BNFC.CF.Cat] -> Doc
-codeSection opts entrypoints =
+codeSection :: BisonUtils -> BNFC.Options.SharedOptions -> [BNFC.CF.Cat] -> Doc
+codeSection utils opts entrypoints =
     text "#include \"PatternMatching.hpp\""
-    $++$ maybeWrapNamespace
+    $++$ namespaceWrap utils
         (scannerDecl opts
         $++$ linesToText
     [ "void Parser::error(const std::string& msg) {"
@@ -291,8 +290,6 @@ codeSection opts entrypoints =
     ] $++$ vcatSpaced (map (entrypointImpl . catNameNoCoerc) entrypoints)
         )
     where
-        maybeWrapNamespace = maybe id wrapNamespace
-            $ BNFC.Options.inPackage opts
         scannerName = case BNFC.Options.inPackage opts of
             Nothing -> "Scanner"
             Just ns -> ns ++ "Scanner"
