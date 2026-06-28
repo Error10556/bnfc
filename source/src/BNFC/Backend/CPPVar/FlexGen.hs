@@ -115,6 +115,7 @@ inline void encodeUTF8(std::string& dest, int32_t ch) {
         buf[sz++] = ch & 0x3F;
         ch >>= 6;
     }
+    buf[sz] = 0;
     sz += (static_cast<int>(buf[sz - 1]) >= 1 << (8 - sz - 1));
     buf[sz] = 0;
     for (int i = 0, j = sz - 1; i < j; ++i, --j) std::swap(buf[i], buf[j]);
