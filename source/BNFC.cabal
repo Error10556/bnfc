@@ -259,6 +259,7 @@ library
     BNFC.Backend.CPPVar.PrettyPrinterGen
     BNFC.Backend.CPPVar.PrinterCommonGen
     BNFC.Backend.CPPVar.TestGen
+    BNFC.Backend.CPPVar.MakefileGen
     BNFC.Backend.CPPVar.CPPUtil
 
     -- Java backend

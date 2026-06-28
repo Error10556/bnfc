@@ -18,6 +18,7 @@ import BNFC.Backend.CPPVar.SyntaxPrinterGen
 import BNFC.Backend.CPPVar.PrettyPrinterGen
 import BNFC.Backend.CPPVar.TestGen
 import BNFC.Backend.CPPVar.PrinterCommonGen
+import BNFC.Backend.CPPVar.MakefileGen
 
 comment :: String -> String
 comment = ("/* "++) . (++" */")
@@ -44,3 +45,6 @@ makeCppVar opts cf = do
   mkfile prettyPrinterHppFilename comment prettyHpp
   mkfile prettyPrinterCppFilename comment prettyCpp
   mkfile testFilename comment (makeTest opts)
+  case optMake opts of
+    Nothing -> return ()
+    Just makefileName -> mkfile makefileName ("# " ++) (makeMakefile opts)
