@@ -40,7 +40,7 @@ variables langname = linesToText
   ]
 
 makeHelpTable :: Int -> [(String, String)] -> Doc
-makeHelpTable minWidth rows = text (concat [sTarget, " | ", sDescription])
+makeHelpTable minWidth rows = text (makeRow sTarget sDescription)
   $+$ text (replicate (leftColSize + 1) '-'
       ++ ('|' : replicate (rightColSize + 1) '-'))
   $+$ linesToText (map (uncurry makeRow) rows)
