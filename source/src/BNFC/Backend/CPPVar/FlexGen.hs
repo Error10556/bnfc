@@ -266,7 +266,7 @@ flexHead :: SharedOptions -> CF -> Doc
 flexHead opts cf = (linesToText $
   [ "%option warn nodefault"
   , "%option 8bit reentrant"
-  , "%option noyywrap"
+  , "%option noyywrap noinput nounput"
   ] ++ (case inPackage opts of
     Nothing -> []
     Just namespace -> ["%option prefix=\"" ++ namespace ++ "\""]) ++
