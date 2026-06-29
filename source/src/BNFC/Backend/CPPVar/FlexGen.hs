@@ -25,8 +25,8 @@ makeFlex opts cf = (flexHead opts cf
   $++$ literalTokenRegexDefs cf
   $++$ text "%%"
   $++$ bcommRules $++$ oneLineComments cf
-  -- token rules here
   $++$ defImplicitTokens opts tkNames
+  $++$ defCustomTokens cf
   $++$ defString opts cf
   $++$ defChar opts cf
   $++$ defInteger opts cf
@@ -139,6 +139,13 @@ literalTokenRegexDefs cf = let
       ++ "|[\\xF0-\\xF7][\\x80-\\xBF]{3}|[\\xF8-\\xFB][\\x80-\\xBF]{4}"
       ++ "|[\\xFC-\\xFD][\\x80-\\xBF]{5}"
     ] else empty)
+
+defCustomTokens :: CF -> Doc
+defCustomTokens cf = foldr ($++$) empty $ map (uncurry makeCustomToken)
+  [(wpThing name, regex) | TokenReg name _ regex <- cfgPragmas cf]
+  where
+    makeCustomToken name reg = text ("    /* " ++ name ++ " */")
+      $+$ text ("<INITIAL>" ++ undefined)
 
 defIdent :: SharedOptions -> CF -> Doc
 defIdent opts cf = if catIdent `elem` cfgLiterals cf

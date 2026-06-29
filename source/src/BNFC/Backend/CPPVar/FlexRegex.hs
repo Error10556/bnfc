@@ -1,6 +1,6 @@
 module BNFC.Backend.CPPVar.FlexRegex
   ( FlexRegex(..)
-  , byteset, onebyte, flexConcat , flexOr
+  , byteset, onebyte, flexConcat, flexOr
   , byte2char, bytecharClass, bytecharRanges
   , flexConcatUTF8
   , flexCharsetUTF8
@@ -24,11 +24,13 @@ import Numeric
 import Data.Bits
 import Data.Either
 import Data.List (delete)
+import Data.Int (Int8)
+import qualified BNFC.Abs
 
 data FlexRegex
   = Empty  -- ^ ""
-  | Onebyte Int  -- ^ technically Onebyte ch ~= Byteset (fromList [ch])
-  | Byteset (Data.Set.Set Int)
+  | Onebyte Int8  -- ^ technically Onebyte ch ~= Byteset (fromList [ch])
+  | Byteset (Data.Set.Set Int8)
   | Star FlexRegex
   | Optional FlexRegex
   | Plus FlexRegex
@@ -40,14 +42,15 @@ onebyte :: Char -> FlexRegex
 onebyte ch = Onebyte o
   where
     _o = ord ch
-    o = if 0 <= _o && _o <= 255 then _o else
+    o = if 0 <= _o && _o <= 255 then fromIntegral _o else
       error "onebyte called with a non-byte character"
 
 byteset :: String -> FlexRegex
 byteset s = Byteset $ Data.Set.fromList ords
   where
     _ords = map ord s
-    ords = if all (\i -> 0 <= i && i <= 255) _ords then _ords else
+    ords = if all (\i -> 0 <= i && i <= 255) _ords
+      then map fromIntegral _ords else
       error "byteset called with a non-byte-character string"
 
 flexConcat :: [FlexRegex] -> FlexRegex
@@ -64,7 +67,14 @@ flexConcatUTF8 :: String -> FlexRegex
 flexConcatUTF8 = flexConcat . map Onebyte . concatMap (utf8encode . ord)
 
 flexCharsetUTF8 :: String -> FlexRegex
-flexCharsetUTF8 = fromMinusRegex . Minus.charset
+flexCharsetUTF8 = flexOr . map (flexConcat . map Onebyte . utf8encode . ord)
+
+simpleConcatUTF8 :: String -> Minus.SimpleRegex Int8
+simpleConcatUTF8 = Minus.string . concatMap (utf8encode . ord)
+
+simpleCharsetUTF8 :: String -> Minus.SimpleRegex Int8
+simpleCharsetUTF8 =
+  foldr Minus.Or Minus.Phi . map (Minus.string . utf8encode . ord)
 
 instance BNFC.PrettyPrint.Pretty FlexRegex where
   pretty = \case
@@ -95,7 +105,17 @@ instance BNFC.PrettyPrint.Pretty FlexRegex where
     else s
     where s = BNFC.PrettyPrint.pretty regex
 
-byte2char :: Bool -> Int -> String
+hexByte :: Int8 -> String
+hexByte byte = let int = fromIntegral byte :: Int in
+  leftPad $ showHex (if int < 0 then 256 + int else int) ""
+  where
+    leftPad s = case length s of
+      0 -> "00"
+      1 -> '0':s
+      2 -> s
+      _ -> error ("Not a byte: 0x" ++ s)
+
+byte2char :: Bool -> Int8 -> String
 byte2char isInCharclass byte
   | byte == 0 = "\\0"
   | byte == 7 = "\\a"  -- bell/alarm
@@ -109,31 +129,28 @@ byte2char isInCharclass byte
   | isInCharclass && byte `elem` safeInCharclass = [chr (fromIntegral byte)]
   | not isInCharclass && byte `elem` escapedOutOfCharclass
     = ['\\', chr (fromIntegral byte)]
-  | otherwise = "\\x" ++ case showHex byte "" of
-    [] -> "00"
-    s@[_] -> '0' : s
-    s@[_,_] -> s
-    s -> error $ "not a byte: 0x" ++ s
+  | otherwise = "\\x" ++ hexByte byte
   where
-    safeBytes :: Data.Set.Set Int
+    safeBytes :: Data.Set.Set Int8
     safeBytes = Data.Set.fromList . map (fromIntegral . ord) $
       ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "_@#`'~&%=;"
-    safeInCharclass :: Data.Set.Set Int
+    safeInCharclass :: Data.Set.Set Int8
     safeInCharclass = Data.Set.fromList . map (fromIntegral . ord) $
       ".+?*<>(){}$/:;\"|"
-    escapedOutOfCharclass :: Data.Set.Set Int
+    escapedOutOfCharclass :: Data.Set.Set Int8
     escapedOutOfCharclass = Data.Set.fromList . map (fromIntegral . ord) $
       ".+?*<>(){}[]$^/:\"\\"
 
 -- | Decides between [^...] and [...], uses bytecharRanges
 -- REQUIRES a sorted list as input
-bytecharClass :: [Int] -> String
+bytecharClass :: [Int8] -> String
 bytecharClass [] = "[^\\0-\\xff]"
 bytecharClass bytes
-  | bytes == [0..255] = "[\\0-\\xff]"
+  | bytes == [-128..127] = "[\\0-\\xff]"
   | otherwise = let
-      normal = bytecharRanges bytes
-      inv = bytecharRanges $ invertByteset [0..255] bytes
+      ints = map fromIntegral bytes :: [Int]
+      normal = bytecharRanges ints
+      inv = bytecharRanges $ invertByteset [0..255] ints
     in if length normal <= length inv + 1
       then "[" ++ normal ++ "]"
       else "[^" ++ inv ++ "]"
@@ -210,36 +227,38 @@ flexRegexPrecedence = \case
 -- | encodes a character with code c into a list of bytes.
 -- See 'man 7 utf8'
 -- Don't think we need a library just for this
-utf8encode :: Int -> [Int]
-utf8encode c
-  | c < 0 = error "Negative char"
-  | c <= 0x7f = [c]
-  | c <= 0x7ff = [0xc0 + shiftR6 1 c, 0x80 + (c .&. 0x3F)]
-  | c <= 0xffff =
-    [0xe0 + shiftR6 2 c, 0x80 + shiftR6 1 c, 0x80 + (c .&. 0x3f)]
-  | c <= 0x1fffff =
-    [ 0xf0 + shiftR6 3 c
-    , 0x80 + shiftR6 2 c
-    , 0x80 + shiftR6 1 c
-    , 0x80 + (c .&. 0x3f)
-    ]
-  | c <= 0x3ffffff =
-    [ 0xf8 + shiftR6 4 c
-    , 0x80 + shiftR6 3 c
-    , 0x80 + shiftR6 2 c
-    , 0x80 + shiftR6 1 c
-    , 0x80 + (c .&. 0x3f)
-    ]
-  | otherwise =
-    [ 0xfc + shiftR6 5 c
-    , 0x80 + shiftR6 4 c
-    , 0x80 + shiftR6 3 c
-    , 0x80 + shiftR6 2 c
-    , 0x80 + shiftR6 1 c
-    , 0x80 + (c .&. 0x3f)
-    ]
+utf8encode :: Int -> [Int8]
+utf8encode = map fromIntegral . helper
   where
-    shiftR6 n c = (c `shiftR` (6 * n)) .&. 0x3f
+    helper c
+      | c < 0 = error "Negative char"
+      | c <= 0x7f = [c]
+      | c <= 0x7ff = [0xc0 + shiftR6 1 c, 0x80 + (c .&. 0x3F)]
+      | c <= 0xffff =
+        [0xe0 + shiftR6 2 c, 0x80 + shiftR6 1 c, 0x80 + (c .&. 0x3f)]
+      | c <= 0x1fffff =
+        [ 0xf0 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+      | c <= 0x3ffffff =
+        [ 0xf8 + shiftR6 4 c
+        , 0x80 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+      | otherwise =
+        [ 0xfc + shiftR6 5 c
+        , 0x80 + shiftR6 4 c
+        , 0x80 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+      where
+        shiftR6 n c = (c `shiftR` (6 * n)) .&. 0x3f
 
 -- | Removes minuses from regexes
 -- simplifies:
@@ -253,9 +272,9 @@ utf8encode c
 -- (8) [set1]|[set2] -> [set1set2]
 -- (9) ""* -> ""
 -- (10) Phi* -> Phi
-fromMinusRegex :: Minus.SimpleRegex Char -> FlexRegex
+fromMinusRegex :: Minus.SimpleRegex Int8 -> FlexRegex
 fromMinusRegex = \case
-  Minus.Term ch -> flexConcat . map Onebyte . utf8encode . ord $ ch
+  Minus.Term byte -> Onebyte $ fromIntegral byte
   Minus.Lambda -> Empty
   Minus.Phi -> byteset ""
   Minus.Rep r -> case fromMinusRegex r of
@@ -298,3 +317,31 @@ fromMinusRegex = \case
       tail@(Star reg : xs) -> if reg == elem then Plus elem : xs
         else elem : tail
       tail -> elem : tail
+
+fromBNFCReg :: BNFC.Abs.Reg -> Minus.SimpleRegex Int8
+fromBNFCReg = Minus.toSimpleRegex
+  (Minus.string . utf8encode . ord) -- char2regex
+  anyUTF8 -- any
+  (Minus.charset [byte0..byte9]) -- digit
+  (Minus.charset ([byte_A..byte_Z] ++ [byte_a..byte_z])) -- letter
+  (Minus.charset ([byte_A..byte_Z])) -- upper
+  (Minus.charset ([byte_a..byte_z])) -- lower
+  where
+    byte0 = fromIntegral (ord '0') :: Int8
+    byte9 = fromIntegral (ord '9') :: Int8
+    byte_a = fromIntegral (ord 'a') :: Int8
+    byte_z = fromIntegral (ord 'z') :: Int8
+    byte_A = fromIntegral (ord 'A') :: Int8
+    byte_Z = fromIntegral (ord 'Z') :: Int8
+    byterange :: Int -> Int -> Minus.SimpleRegex Int8
+    byterange from to = Minus.charset (map fromIntegral [from..to] :: [Int8])
+    utf8Continuation :: Int -> Minus.SimpleRegex Int8
+    utf8Continuation n = foldr1 Minus.Seq $ replicate n $ byterange 0x80 0xbf
+    anyUTF8 = foldr1 Minus.Or
+      [ byterange 0 127
+      , byterange 0xc0 0xdf `Minus.Seq` utf8Continuation 1
+      , byterange 0xe0 0xef `Minus.Seq` utf8Continuation 2
+      , byterange 0xf0 0xf7 `Minus.Seq` utf8Continuation 3
+      , byterange 0xf8 0xfb `Minus.Seq` utf8Continuation 4
+      , byterange 0xfc 0xfd `Minus.Seq` utf8Continuation 5
+      ]
