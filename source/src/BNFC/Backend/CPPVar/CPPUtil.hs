@@ -86,14 +86,14 @@ catNameNoCoerc = \case
 
 catNameWithCoerc :: Cat -> String
 catNameWithCoerc = \case
-  CoercCat w n -> normalizeCPPName w ++ if n == 0 then "" else show n
+  CoercCat w n -> normalizeCPPName w ++ show n
   ListCat c -> "List" ++ catNameWithCoerc c
   TokenCat w -> w
   Cat w -> normalizeCPPName w
 
 fieldNames :: SentForm -> [(String, Cat)]
 fieldNames sentForm = let
-    members = [normCat cat | (Left cat) <- sentForm]
+    members = [cat | (Left cat) <- sentForm]
     unindexedNames = map ((++"_") . catNameNoCoerc) members
     indexedNames = indexNames' unindexedNames
   in
