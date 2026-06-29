@@ -8,6 +8,7 @@ import qualified Data.Set
 import Text.PrettyPrint
 import BNFC.Backend.CPPVar.CPPUtil
 import Data.List (intercalate)
+import BNFC.CF (CFG(cfgPragmas))
 
 bisonFilename :: BNFC.Options.SharedOptions -> String
 bisonFilename opts = BNFC.Options.lang opts ++ ".ypp"
@@ -117,10 +118,13 @@ tokenDefs :: Data.Map.Map String String -> BNFC.CF.CF -> Doc
 tokenDefs implicit cf = linesToText
   [ "%token " ++ tkname | tkname <- Data.Map.elems implicit ]
   $+$ linesToText (map lit2token $ BNFC.CF.cfgLiterals cf)
+  $+$ linesToText (map (tokenDef "std::string")
+    ["CUSTOM_" ++ BNFC.CF.wpThing name
+    | BNFC.CF.TokenReg name _ _ <- cfgPragmas cf])
   where
+    tokenDef storageType name = concat ["%token <", storageType, "> " , name]
     lit2token catname = let info = lookupLiteralTokenInfo catname in
-      concat ["%token <", literalTokenStorageType info, "> "
-             , literalTokenName info]
+      tokenDef (literalTokenStorageType info) (literalTokenName info)
 
 bisonBraces :: String -> Doc -> Doc
 bisonBraces s d = text (s ++ " {") $+$ nest 4 d $+$ "}"
@@ -263,8 +267,10 @@ category implicitTokenNames cat rules = case cat of
     sentFormToBison :: BNFC.CF.SentForm -> String
     sentFormToBison = unwords . map (\case
       Left cat -> case cat of
-        BNFC.CF.TokenCat tokenName -> literalTokenName
-          $ lookupLiteralTokenInfo tokenName
+        BNFC.CF.TokenCat tokenName ->
+          case Data.Map.lookup tokenName literalTokenInfo of
+            Nothing -> "CUSTOM_" ++ tokenName
+            Just info -> literalTokenName info
         _ -> catNameWithCoerc cat
       Right s -> (case s `Data.Map.lookup` implicitTokenNames of
         Nothing -> error "string token not named"
