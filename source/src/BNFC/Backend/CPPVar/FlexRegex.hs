@@ -176,13 +176,15 @@ bytecharClass bytes
 bytecharRanges :: [Int] -> String
 bytecharRanges bytes = concatMap saferanges [digits, caps, lows]
   ++ concatMap (byte2char True . fromIntegral) (bad1 ++ bad2 ++ bad3 ++ bad4)
+  ++ escranges nonascii
   where
     (bad1, tail1) = span (< ord '0') bytes
     (digits, tail2) = span (<= ord '9') tail1
     (bad2, tail3) = span (< ord 'A') tail2
     (caps, tail4) = span (<= ord 'Z') tail3
     (bad3, tail5) = span (< ord 'a') tail4
-    (lows, bad4) = span (<= ord 'z') tail5
+    (lows, tail6) = span (<= ord 'z') tail5
+    (bad4, nonascii) = span (<= 127) tail6
     saferanges :: [Int] -> String
     saferanges = concatMap (uncurry range2str) . getranges
       where
@@ -190,6 +192,14 @@ bytecharRanges bytes = concatMap saferanges [digits, caps, lows]
           | start == end = [chr start]
           | start + 1 == end = [chr start, chr end]
           | otherwise = [chr start, '-', chr end]
+    escranges = concatMap (uncurry escRange2str) . getranges
+      where
+        escRange2str start end
+          | start == end = escHex start
+          | start + 1 == end = concatMap escHex [start, end]
+          | otherwise = escHex start ++ ('-' : escHex end)
+        escHex :: Int -> String
+        escHex = ("\\x" ++) . hexByte . fromIntegral
     getranges :: [Int] -> [(Int, Int)]
     getranges = \case
       [] -> []
