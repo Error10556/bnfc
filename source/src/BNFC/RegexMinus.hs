@@ -65,15 +65,15 @@ data SimpleRegex a
   | Phi    -- ^ Recognizes no strings
   | Rep (SimpleRegex a)  -- ^ Kleene Star (*)
   | Or (SimpleRegex a) (SimpleRegex a) -- ^ Or (|)
-  | Sub (SimpleRegex a) (SimpleRegex a) -- ^ SimpleRegex Subtraction (-)
+  | Sub (SimpleRegex a) (SimpleRegex a) -- ^ Regex Subtraction (-)
   | Seq (SimpleRegex a) (SimpleRegex a) -- ^ Sequence (ab)
   deriving (Eq,Ord,Show)
 
 -- | Converts from richer canonical regexes to minimal representation
-toSimpleRegex :: SimpleRegex Char -> SimpleRegex Char
-  -> SimpleRegex Char -> SimpleRegex Char -> SimpleRegex Char -> Abs.Reg
-  -> SimpleRegex Char
-toSimpleRegex any digit letter upper lower = helper
+toSimpleRegex :: Ord a => (Char -> SimpleRegex a) -> SimpleRegex a -> SimpleRegex a
+  -> SimpleRegex a -> SimpleRegex a -> SimpleRegex a -> Abs.Reg
+  -> SimpleRegex a
+toSimpleRegex fromChar any digit letter upper lower = helper
   where
     helper = \case
       Abs.RAlt l r -> Or (helper l) (helper r)
@@ -83,9 +83,9 @@ toSimpleRegex any digit letter upper lower = helper
       Abs.RPlus reg -> let sreg = helper reg in sreg `Seq` Rep sreg
       Abs.ROpt reg -> Lambda `Or` helper reg
       Abs.REps -> Lambda
-      Abs.RChar ch -> Term ch
-      Abs.RAlts s -> charset s
-      Abs.RSeqs s -> string s
+      Abs.RChar ch -> fromChar ch
+      Abs.RAlts s -> foldr Or Phi $ map fromChar s
+      Abs.RSeqs s -> foldr Seq Lambda $ map fromChar s
       Abs.RDigit -> digit
       Abs.RLetter -> letter
       Abs.RUpper -> upper
