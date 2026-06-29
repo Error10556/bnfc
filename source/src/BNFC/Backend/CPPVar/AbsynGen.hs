@@ -141,7 +141,7 @@ tokenStructImpl name storageType =
 headerTokens :: CF -> (Doc, Doc)
 headerTokens cf = (vcatSpaced structs, vcatSpaced reflections)
   where
-    litTokens = map makeLitToken (literals cf)
+    litTokens = map makeLitToken (cfgLiterals cf)
     userTokens = map (makeUserToken . wpThing) $
       [name | TokenReg name _ _ <- cfgPragmas cf]
     makeLitToken "Char" = tokenStructHeader "Char" "int32_t"
@@ -158,7 +158,7 @@ headerTokens cf = (vcatSpaced structs, vcatSpaced reflections)
 implTokens :: CF -> Doc
 implTokens cf = vcatSpaced $ litTokens ++ userTokens
   where
-    litTokens = map makeLitToken (literals cf)
+    litTokens = map makeLitToken (cfgLiterals cf)
     userTokens = map (makeUserToken . wpThing) $
       [name | TokenReg name _ _ <- cfgPragmas cf]
     makeLitToken s@"Char" = tokenStructImpl s "int32_t"
