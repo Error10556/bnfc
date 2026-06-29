@@ -124,9 +124,9 @@ printerImpl symbols = linesToText
         , "    SyntaxPrinter nonlast(this, true);"
         , "    size_t n1 = n - 1;"
         , "    for (size_t i = 0; i < n1; i++)"
-        , "        std::visit(nonlast, v[i]);"
+        , "        nonlast(v[i]);"
         , "}"
-        , "std::visit(SyntaxPrinter(this, false), v.back());"
+        , "SyntaxPrinter(this, false)(v.back());"
         ]
       CustomToken name -> stringlikePrint name
       Ident -> unlinesToText [s|
