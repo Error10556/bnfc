@@ -15,8 +15,6 @@ import Data.Maybe (fromMaybe)
 import Data.String.QQ (s)
 import qualified BNFC.Backend.CPPVar.FlexRegex as Minus
 
--- TODO add \u and \U and fix \x
-
 flexFilename :: SharedOptions -> String
 flexFilename = (++".l") . lang
 
@@ -68,7 +66,7 @@ literalTokenConditions cf =
 
 literalTokenUtils :: CF -> Doc
 literalTokenUtils cf =
-  (if catChar `elem` cfgLiterals cf then (unlinesToText [s|
+  (if hasChar || hasString then (unlinesToText [s|
 inline int hexDigitValue(char ch) {
     if ('0' <= ch && ch <= '9') return ch - '0';
     if ('a' <= ch && ch <= 'f') return ch - 'a' + 10;
@@ -81,7 +79,9 @@ inline int32_t hexInt32(const char* start, int len) {
     for (int i = 0; i < len; i++) val = (val << 4) | hexDigitValue(start[i]);
     return val;
 }
+|]) else empty)
 
+  $++$ (if hasChar then (unlinesToText [s|
 inline int32_t minCharForEncodedLen(int len) {
     if (len < 2) return 0;
     if (len == 2) return 0x80;
@@ -96,13 +96,9 @@ inline int decodeUTF8(const char* start, int len) {
     for (int i = 1; i < len; i++) res = (res << 6) | (start[i] & 0x3f);
     return res >= minCharForEncodedLen(len) ? res : -1;
 }
-
-inline int32_t bitSegment(int shiftr, int masklen, int32_t val) {
-    return (val >> shiftr) & ((static_cast<int32_t>(1) << masklen) - 1);
-}
 |]) else empty)
 
-  $++$ (if catString `elem` cfgLiterals cf then (unlinesToText [s|
+  $++$ (if hasString then (unlinesToText [s|
 inline void encodeUTF8(std::string& dest, int32_t ch) {
     if (ch < 0) {
         dest.push_back(0xFF);
@@ -127,6 +123,9 @@ inline void encodeUTF8(std::string& dest, int32_t ch) {
     dest.append(buf);
 }
 |]) else empty)
+  where
+    hasChar = catChar `elem` cfgLiterals cf
+    hasString = catString `elem` cfgLiterals cf
 
 literalTokenRegexDefs :: CF -> Doc
 literalTokenRegexDefs cf = let
