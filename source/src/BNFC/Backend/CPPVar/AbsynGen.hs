@@ -253,12 +253,12 @@ rule r = let
           ++ ">(std::move(" ++ value ++ "))"
       | otherwise = "std::move(" ++ value ++ ")"
     copyCtor = text
-      (name ++ "::" ++ name ++ "(const " ++ name ++ "& other)")
+      (name ++ "::" ++ name ++ "(const " ++ name ++ "& other [[maybe_unused]])")
       $+$ ctorInitializers
         [name ++ "(" ++ cloneValue cat ("other." ++ name) ++ ")"
         | (name, cat) <- zip indexedNames members] <> text " {}"
     copyAsg = text (name ++ "& " ++ name
-             ++ "::operator=(const " ++ name ++ "& other) {")
+             ++ "::operator=(const " ++ name ++ "& other [[maybe_unused]]) {")
       $+$ nest 4 (linesToText (
         [name ++ " = " ++ cloneValue cat ("other." ++ name) ++ ";"
         | (name, cat) <- zip indexedNames members]

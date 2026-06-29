@@ -274,7 +274,8 @@ methodCategory name = linesToText
 
 methodFunctionRule :: BNFC.CF.Rule -> Doc
 methodFunctionRule r = linesToText
-  [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  [ "void PrettyPrinter::operator()(const " ++ name
+    ++ "& v [[maybe_unused]]) const {"
   , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
   ] $+$ nest 4 (fst $ helperTerm2doc 0 terms)
   $+$ linesToText

@@ -111,7 +111,7 @@ printerImpl symbols = linesToText
   where
     makeMethod sym = text
       ("void SyntaxPrinter::operator()(const "
-        ++ printableClassName sym ++  "& v) const {")
+        ++ printableClassName sym ++  "& v [[maybe_unused]]) const {")
       $+$ nest 4 (makeMethodBody sym) $+$ text "}"
     makeMethodBody = \case
       NormalCategory _ -> text "std::visit(*this, v);"
