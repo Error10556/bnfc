@@ -13,6 +13,7 @@ import Data.Char (ord)
 import BNFC.Utils (symbolToName, uncurry3)
 import Data.Maybe (fromMaybe)
 import Data.String.QQ (s)
+import qualified BNFC.Backend.CPPVar.FlexRegex as Minus
 
 flexFilename :: SharedOptions -> String
 flexFilename = (++".l") . lang
@@ -26,7 +27,7 @@ makeFlex opts cf = (flexHead opts cf
   $++$ text "%%"
   $++$ bcommRules $++$ oneLineComments cf
   $++$ defImplicitTokens opts tkNames
-  $++$ defCustomTokens cf
+  $++$ defCustomTokens opts cf
   $++$ defString opts cf
   $++$ defChar opts cf
   $++$ defInteger opts cf
@@ -140,12 +141,18 @@ literalTokenRegexDefs cf = let
       ++ "|[\\xFC-\\xFD][\\x80-\\xBF]{5}"
     ] else empty)
 
-defCustomTokens :: CF -> Doc
-defCustomTokens cf = foldr ($++$) empty $ map (uncurry makeCustomToken)
+defCustomTokens :: SharedOptions -> CF -> Doc
+defCustomTokens opts cf = vcatSpaced $ map (uncurry makeCustomToken)
   [(wpThing name, regex) | TokenReg name _ regex <- cfgPragmas cf]
   where
     makeCustomToken name reg = text ("    /* " ++ name ++ " */")
-      $+$ text ("<INITIAL>" ++ undefined)
+      $+$ (text "<INITIAL>" <> pretty regFlex <> text ret)
+      where
+        regSimple = Minus.fromBNFCReg reg
+        regFlex = Minus.fromMinusRegex regSimple
+        ret = concat
+          [ " return ", bisonParserName opts, "::make_CUSTOM_"
+          , name, "(yytext);"]
 
 defIdent :: SharedOptions -> CF -> Doc
 defIdent opts cf = if catIdent `elem` cfgLiterals cf

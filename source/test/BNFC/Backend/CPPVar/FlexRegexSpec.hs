@@ -10,6 +10,8 @@ import Data.Char
 import Numeric
 import BNFC.RegexMinus
 import Data.List (sort)
+import Data.Int (Int8)
+import BNFC.Backend.CPPVar.FlexRegex (simpleCharsetUTF8)
 
 spec :: Spec
 spec = do
@@ -75,14 +77,13 @@ spec = do
             other = minus (ordnormal ++ ordneedescape ++ special)
         it "maps correctly" $
             concatMap (RX.byte2char False)
-                (ordnormal ++ ordneedescape ++ special ++ other)
+                (map fromIntegral
+                    $ ordnormal ++ ordneedescape ++ special ++ other)
                 `shouldBe`
                 (normal
                 ++ foldr (\ch tail -> '\\' : ch : tail) [] needescape
                 ++ "\\0\\a\\b\\t\\n\\v\\f\\r"
                 ++ concatMap (("\\x"++) . pad2 . flip showHex "") other)
-        it "char 256 throws" $
-            evaluate (last $ RX.byte2char False 256) `shouldThrow` anyException
 
     describe "byte2char in charclass context" $ do
         let normal = ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9'] ++
@@ -92,48 +93,51 @@ spec = do
             other = minus (ordnormal ++ special)
         it "maps correctly" $
             concatMap (RX.byte2char True)
-                (ordnormal ++ special ++ other)
+                (map fromIntegral $ ordnormal ++ special ++ other)
                 `shouldBe`
                 (normal
                 ++ "\\0\\a\\b\\t\\n\\v\\f\\r"
                 ++ concatMap (("\\x"++) . pad2 . flip showHex "") other)
-        it "char 256 throws" $
-            evaluate (last $ RX.byte2char True 256) `shouldThrow` anyException
 
     describe "Conversion from RegexMinus" $ do
-        let test str minus = (show . pretty . RX.fromMinusRegex $ minus)
+        let
+            test str minus = (show . pretty . RX.fromMinusRegex $ minus)
                 `shouldBe` str
+            byteterm = Term . fromIntegral . ord :: Char -> SimpleRegex Int8
         -- sort "qweйцу" = "eqwйуц"
         -- "йуц" in utf8 in hex is d0b9 d183 d186
         it "UTF8" $ test "[eqw]|\\xd0\\xb9|\\xd1\\x83|\\xd1\\x86"
-            $ charset "qweйцу"
-        it "aa* -> a+" $ test "a+" $ Seq (Term 'a') (Rep (Term 'a'))
+            $ simpleCharsetUTF8 "qweйцу"
+        it "aa* -> a+" $ test "a+"
+            $ byteterm 'a' `Seq` Rep (byteterm 'a')
         it "(a|bc)(a|bc)* -> (a|bc)+" $ test "(a|bc)+" $
-            let abc = Or (Term 'a') (Seq (Term 'b') (Term 'c'))
+            let abc = byteterm 'a' `Or` RX.simpleConcatUTF8 "bc"
             in Seq abc (Rep abc)
         -- Phi = empty language
-        it "r|Phi -> r" $ test "r" $ Or (Term 'r') Phi
-        it "a|b|Phi|c -> [a-c]" $ test "[a-c]" $ Or (Term 'a') $ Or (Term 'b') $
-            Or Phi $ Term 'c'
-        it "r|\"\" -> r?" $ test "r?" $ Or (Term 'r') Lambda
-        it "a|b|\"\"|c -> [a-c]?" $ test "[a-c]?" $ Or (Term 'a')
-            $ Or (Term 'b') $ Or Lambda $ Term 'c'
-        it "a|b|\"\"|Phi|cd -> ([ab]|cd)?" $ test "([ab]|cd)?" $ Or (Term 'a') $
-            Or (Term 'b') $ Or Lambda $ Or Phi $ Seq (Term 'c') (Term 'd')
-        it "a\"\", \"\"a -> a" $ test "ac" $ Seq (Term 'a') $ Seq Lambda $
-            Term 'c'
-        it "aPhi, Phia -> Phi" $ test "[^\\0-\\xff]" $ Seq (Term 'a') $
-            Seq (Term 'b') $ Seq Phi $ Term 'c'
+        it "r|Phi -> r" $ test "r" $ Or (RX.simpleConcatUTF8 "r") Phi
+        it "a|b|Phi|c -> [a-c]" $ test "[a-c]"
+            $ Or (byteterm 'a') $ Or (byteterm 'b') $ Or Phi $ byteterm 'c'
+        it "r|\"\" -> r?" $ test "r?" $ Or (byteterm 'r') Lambda
+        it "a|b|\"\"|c -> [a-c]?" $ test "[a-c]?" $ Or (byteterm 'a')
+            $ Or (byteterm 'b') $ Or Lambda $ byteterm 'c'
+        it "a|b|\"\"|Phi|cd -> ([ab]|cd)?" $ test "([ab]|cd)?" $ Or (byteterm 'a') $
+            Or (byteterm 'b') $ Or Lambda $ Or Phi $ Seq (byteterm 'c') (byteterm 'd')
+        it "a\"\", \"\"a -> a" $ test "ac" $ Seq (byteterm 'a') $ Seq Lambda $
+            byteterm 'c'
+        it "aPhi, Phia -> Phi" $ test "[^\\0-\\xff]" $ Seq (byteterm 'a') $
+            Seq (byteterm 'b') $ Seq Phi $ byteterm 'c'
         it "\"\"* -> \"\"" $ test "\"\"" $ Rep Lambda
 
-        it "a([c] - [^c])b -> acb" $ test "acb" $ Seq (Term 'a') $
-            Seq (Sub (charset "c") (charset (['\0'..'b'] ++ ['d'..'\xff']))) $
-            Term 'b'
+        it "a([c] - [^c])b -> acb" $ test "acb" $ Seq (byteterm 'a') $
+            Seq (Sub (simpleCharsetUTF8 "c")
+                    (simpleCharsetUTF8 (['\0'..'b'] ++ ['d'..'\xff']))) $
+            byteterm 'b'
         it "a([a-z] - [a-k] - [l-z])b -> Phi" $ test "[^\\0-\\xff]" $
-            Seq (Term 'a')
-            $ Seq (Sub (Sub (charset ['a'..'z']) (charset ['a'..'k']))
-                       (charset ['l'..'z']))
-            $ Term 'b'
+            Seq (byteterm 'a')
+            $ Seq (Sub (Sub (simpleCharsetUTF8 ['a'..'z'])
+                            (simpleCharsetUTF8 ['a'..'k']))
+                       (simpleCharsetUTF8 ['l'..'z']))
+            $ byteterm 'b'
 
     where
         pad2 s = take (2 - length s) ['0'..] ++ s

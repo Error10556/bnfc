@@ -4,6 +4,8 @@ module BNFC.Backend.CPPVar.FlexRegex
   , byte2char, bytecharClass, bytecharRanges
   , flexConcatUTF8
   , flexCharsetUTF8
+  , simpleConcatUTF8
+  , simpleCharsetUTF8
   , flexRegexPrecedence
   , precedenceEmpty
   , precedenceOnebyte
@@ -14,6 +16,7 @@ module BNFC.Backend.CPPVar.FlexRegex
   , precedenceConcat
   , precedenceOr
   , fromMinusRegex
+  , fromBNFCReg
   ) where
 
 import qualified Data.Set
@@ -23,7 +26,7 @@ import Data.Char
 import Numeric
 import Data.Bits
 import Data.Either
-import Data.List (delete)
+import Data.List (delete, partition)
 import Data.Int (Int8)
 import qualified BNFC.Abs
 
@@ -148,7 +151,9 @@ bytecharClass [] = "[^\\0-\\xff]"
 bytecharClass bytes
   | bytes == [-128..127] = "[\\0-\\xff]"
   | otherwise = let
-      ints = map fromIntegral bytes :: [Int]
+      (intsNeg, intsPos) = partition (< 0) $ map fromIntegral bytes
+        :: ([Int], [Int])
+      ints = intsPos ++ map (+256) intsNeg
       normal = bytecharRanges ints
       inv = bytecharRanges $ invertByteset [0..255] ints
     in if length normal <= length inv + 1
@@ -273,7 +278,7 @@ utf8encode = map fromIntegral . helper
 -- (9) ""* -> ""
 -- (10) Phi* -> Phi
 fromMinusRegex :: Minus.SimpleRegex Int8 -> FlexRegex
-fromMinusRegex = \case
+fromMinusRegex simplereg = case Minus.removeMinuses simplereg of
   Minus.Term byte -> Onebyte $ fromIntegral byte
   Minus.Lambda -> Empty
   Minus.Phi -> byteset ""
@@ -296,7 +301,7 @@ fromMinusRegex = \case
     in if Empty `elem` regexSet
       then Optional . flexOr . delete Empty $ unifiedRegexes  -- (3)
       else flexOr unifiedRegexes
-  minus@(Minus.Sub _ _) -> fromMinusRegex $ Minus.removeMinuses minus
+  Minus.Sub _ _ -> error "removeMinuses returned a Sub"
   seq@(Minus.Seq _ _) -> let
       regexList = makeRegexListFromSeq seq  -- (4)
       -- | (5)
