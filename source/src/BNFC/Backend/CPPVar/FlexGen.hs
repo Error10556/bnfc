@@ -15,6 +15,8 @@ import Data.Maybe (fromMaybe)
 import Data.String.QQ (s)
 import qualified BNFC.Backend.CPPVar.FlexRegex as Minus
 
+-- TODO add \u and \U and fix \x
+
 flexFilename :: SharedOptions -> String
 flexFilename = (++".l") . lang
 
