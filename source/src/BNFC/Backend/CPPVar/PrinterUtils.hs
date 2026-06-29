@@ -15,6 +15,7 @@ data PrintableSymbol
     , printListSingle :: Maybe ([String], Cat, [String])
     }
   | FunctionRule Rule
+  | CustomToken String
   | Ident
   | String
   | Char
@@ -31,12 +32,14 @@ literalName2Symbol = fromList
   ]
 
 getPrintableSymbols :: CF -> GroupedRules -> [PrintableSymbol]
-getPrintableSymbols cf rulemap = literals ++ nonliterals
+getPrintableSymbols cf rulemap = literals ++ customTokens ++ nonliterals
   where
     literals = map (\name -> case name `lookup` literalName2Symbol of
       Just printable -> printable
       Nothing -> error $ "Unsupported literal: " ++ name)
       $ cfgLiterals cf
+    customTokens = [CustomToken $ wpThing name
+      | TokenReg name _ _ <- cfgPragmas cf]
     nonliterals = concat
       $ flip map (toList (mergeCoercCats rulemap)) $ \case
       (cat@(ListCat itemcat), rules) -> [ListCategory
@@ -91,6 +94,7 @@ printableClassName = \case
   NormalCategory s -> s
   ListCategory {printListName=s} -> s
   FunctionRule r -> funName r
+  CustomToken t -> t
   Ident -> catIdent
   Char -> catChar
   String -> catString

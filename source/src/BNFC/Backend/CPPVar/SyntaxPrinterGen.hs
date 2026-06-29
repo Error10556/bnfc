@@ -61,6 +61,7 @@ printerClassDecl symbols = linesToText
       NormalCategory name -> make name
       ListCategory {printListName = name} -> make name
       FunctionRule rule -> make $ BNFC.CF.funName rule
+      CustomToken name -> make name
       Ident -> make BNFC.CF.catIdent
       String -> make BNFC.CF.catString
       Double -> make BNFC.CF.catDouble
@@ -127,16 +128,12 @@ printerImpl symbols = linesToText
         , "}"
         , "std::visit(SyntaxPrinter(this, false), v.back());"
         ]
+      CustomToken name -> stringlikePrint name
       Ident -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Ident {" << v.Value << "}\n";
 |]
-      String -> unlinesToText [s|
-PrintIndentForHeader();
-out << "String ";
-PrintEscapedString(out, v.Value);
-out << '\n';
-|]
+      String -> stringlikePrint "String"
       Integer -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Integer " << v.Value << '\n';
@@ -180,3 +177,9 @@ out << '\n';
             item:tail -> case myUnsnoc tail of
               Nothing -> Just ([], item)
               Just (init, last) -> Just (item:init, last)
+    stringlikePrint name = linesToText
+      [ "PrintIndentForHeader();"
+      , "out << \"" ++ name ++ " \";"
+      , "PrintEscapedString(out, v.Value);"
+      , "out << '\\n';"
+      ]

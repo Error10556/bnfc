@@ -317,6 +317,15 @@ methodFunctionRule r = linesToText
       0 -> ""
       i -> "printer" ++ show i ++ "."
 
+methodCustomToken :: String -> Doc
+methodCustomToken name = linesToText
+  [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
+  , "    out << v.Value;"
+  , "    IF_BAD_COERC(" ++ name ++ ") out << ')';"
+  , "}"
+  ]
+
 methodList :: String -> Integer
   -> Maybe [String]
   -> Maybe ([String], BNFC.CF.Cat, [String], BNFC.CF.Cat, [String])
@@ -389,6 +398,7 @@ makeMethod = \case
     , printListSingle = single
     } -> methodList name itemcoerc empty cons single
   FunctionRule r -> methodFunctionRule r
+  CustomToken t -> methodCustomToken t
   Ident -> methodIdent
   String -> methodString
   Integer -> methodInteger
