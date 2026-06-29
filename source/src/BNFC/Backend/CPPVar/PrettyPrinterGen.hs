@@ -259,9 +259,9 @@ void PrettyPrinter::operator()(const Double& v) const {
 methodChar :: Doc
 methodChar = unlinesToText [s|
 void PrettyPrinter::operator()(const Char& v) const {
-    IF_BAD_COERC(Double) out << '(';
+    IF_BAD_COERC(Char) out << '(';
     PrintEscapedChar(out, v.Value);
-    IF_BAD_COERC(Double) out << ')';
+    IF_BAD_COERC(Char) out << ')';
 }
 |]
 
