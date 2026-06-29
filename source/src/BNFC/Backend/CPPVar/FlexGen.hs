@@ -132,7 +132,11 @@ literalTokenRegexDefs :: CF -> Doc
 literalTokenRegexDefs cf = let
     hasChar = BNFC.CF.catChar `elem` BNFC.CF.cfgLiterals cf
   in (if BNFC.CF.catString `elem` BNFC.CF.cfgLiterals cf || hasChar
-    then text "HEXINT [0-7][0-9a-fA-F]{7}|[0-9a-fA-F]{1,7}" else empty)
+    then unlinesToText [s|
+HEXINT [0-7][0-9a-fA-F]{7}|[0-9a-fA-F]{1,7}
+HEXSHORT [0-9a-fA-F]{1,4}
+HEXBYTE [0-9a-fA-F]{1,2}
+|] else empty)
   $++$ (if hasChar then linesToText
     [ "    /* 2-6 bytes. Does not handle the [\\x00-\\x7F] case."
     , "     * This regex permits non-minimal-length encodings,"
@@ -180,7 +184,13 @@ defString opts cf = if catString `elem` cfgLiterals cf
 <ESCAPE>r BEGIN(STRING); yyextra->push_back('\r');
 <ESCAPE>t BEGIN(STRING); yyextra->push_back('\t');
 <ESCAPE>v BEGIN(STRING); yyextra->push_back('\v');
-<ESCAPE>x{HEXINT} {
+<ESCAPE>x{HEXBYTE} {
+        BEGIN(STRING);
+        yyextra->push_back(
+            static_cast<char>(hexInt32(yytext + 1, yyleng - 1)));
+    }
+<ESCAPE>u{HEXSHORT} |
+<ESCAPE>U{HEXINT} {
         BEGIN(STRING);
         encodeUTF8(*yyextra, hexInt32(yytext + 1, yyleng - 1));
     }
@@ -227,7 +237,9 @@ defChar opts cf = if catChar `elem` cfgLiterals cf
     [ "    /* Char in UTF-8 */"
     , "<INITIAL>' BEGIN(CHAR);"
     ] ++ map simpleEscape "0abfnrtv" ++
-    [ "<CHAR>\\\\x{HEXINT}' {"
+    [ "<CHAR>\\x{HEXBYTE}'  |"
+    , "<CHAR>\\u{HEXSHORT}' |"
+    , "<CHAR>\\U{HEXINT}' {"
     , "        BEGIN(INITIAL);"
     , "        return " ++ bisonParserName opts
       ++ "::make_CHAR(hexInt32(yytext + 2, yyleng - 2));"

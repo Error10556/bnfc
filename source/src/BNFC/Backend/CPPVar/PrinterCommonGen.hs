@@ -78,8 +78,18 @@ void PrintEscapedCharRaw(std::ostream& out, int32_t ch) {
                 out << static_cast<char>(ch);
                 break;
             }
-            out << "\\x";
-            for (int i = 28; i >= 0; i -= 4)
+            int digitcount;
+            if (0 <= ch && ch <= 0xFF) {
+                out << "\\x";
+                digitcount = 2;
+            }
+            if (0 <= ch && ch <= 0xFFFF) {
+                out << "\\u";
+                digitcount = 4;
+            }
+            out << "\\U";
+            digitcount = 8;
+            for (int i = (digitcount - 1) * 4; i >= 0; i -= 4)
                 out << "0123456789ABCDEF"[(ch >> i) & 0xF];
             break;
     }
