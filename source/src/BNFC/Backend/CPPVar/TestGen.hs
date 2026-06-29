@@ -114,19 +114,19 @@ Options:
         cout << filename << '\n';
 
 |] $+$ linesToText
-  [ "        " ++ ns ++ "ParseProgram(file) | PatternMatch{"
+  [ "        " ++ ns ++ "Parse(file) | PatternMatch{"
   , "            [&](" ++ ns ++ "Parser::syntax_error&& err) {"
   , "                cout << \"Could not parse!\\nError: \" "
     ++ "<< err.what() << \"\\n\\n\";"
   , "                return;"
   , "            },"
-  , "            [&](" ++ ns ++ "Program&& p) {"
+  , "            [&](auto&& ast) {"
   , "                if (tree) {"
-  , "                    p | " ++ ns ++ "SyntaxPrinter(cout);"
+  , "                    ast | " ++ ns ++ "SyntaxPrinter(cout);"
   , "                    cout << '\\n';"
   , "                }"
   , "                if (pretty) {"
-  , "                    p | " ++ ns ++ "PrettyPrinter(cout);"
+  , "                    ast | " ++ ns ++ "PrettyPrinter(cout);"
   ] $+$ unlinesToText [s|
                     cout << "\n\n";
                 }
