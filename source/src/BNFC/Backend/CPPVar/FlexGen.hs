@@ -200,11 +200,10 @@ defDouble :: SharedOptions -> CF -> Doc
 defDouble opts cf = if catDouble `elem` cfgLiterals cf
   then (unlinesToText [s|
     /* Double */
-<INITIAL>[+\-]?[0-9]+(\.[0-9]+)?([eE][+\-]?[0-9]+)? {
-        const char* const start = yytext + (*yytext == '+');
+<INITIAL>[0-9]+(\.[0-9]+)?([eE][+\-]?[0-9]+)? {
         const char* const end = yytext + yyleng;
         double num;
-        auto res = std::from_chars(start, end, num);
+        auto res = std::from_chars(yytext, end, num);
         if (res.ec == std::errc() && res.ptr == end)
 |] $+$ linesToText
     [ "            return " ++ bisonParserName opts ++ "::make_DOUBLE(num);"
@@ -217,11 +216,10 @@ defInteger :: SharedOptions -> CF -> Doc
 defInteger opts cf = if catInteger `elem` cfgLiterals cf
   then (unlinesToText [s|
     /* Integer (must be above Double) */
-<INITIAL>[+\-]?[0-9]+ {
-        const char* const start = yytext + (*yytext == '+');
+<INITIAL>[0-9]+ {
         const char* const end = yytext + yyleng;
         long num;
-        auto res = std::from_chars(start, end, num);
+        auto res = std::from_chars(yytext, end, num);
         if (res.ec == std::errc() && res.ptr == end)
 |] $+$ linesToText
     [ "            return " ++ bisonParserName opts ++ "::make_INTEGER(num);"
