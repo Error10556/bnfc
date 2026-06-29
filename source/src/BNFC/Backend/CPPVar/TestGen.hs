@@ -5,7 +5,7 @@ module BNFC.Backend.CPPVar.TestGen (testFilename, makeTest) where
 import BNFC.Backend.CPPVar.CPPUtil
 import Text.PrettyPrint
 import Data.String.QQ
-import BNFC.Options (SharedOptions, inPackage)
+import BNFC.Options (SharedOptions, inPackage, lang)
 
 testFilename :: String
 testFilename = "Test.cpp"
@@ -22,7 +22,7 @@ makeTest opts = let
 #include "Absyn.hpp"
 #include "PrettyPrinter.hpp"
 #include "SyntaxPrinter.hpp"
-#include "grammar.tab.hpp"
+|] $+$ text ("#include \"" ++ lang opts ++ ".tab.hpp\"") $+$ unlinesToText [s|
 #include "PatternMatching.hpp"
 using namespace std;
 
