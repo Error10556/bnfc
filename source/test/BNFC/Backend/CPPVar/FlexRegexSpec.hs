@@ -8,8 +8,8 @@ import qualified BNFC.Backend.CPPVar.FlexRegex as RX
 import Control.Exception (evaluate)
 import Data.Char
 import Numeric
-import Data.List
 import BNFC.RegexMinus
+import Data.List (sort)
 
 spec :: Spec
 spec = do
