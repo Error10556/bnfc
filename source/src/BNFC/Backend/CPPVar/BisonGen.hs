@@ -201,7 +201,7 @@ startRules :: [BNFC.CF.Cat] -> Doc
 startRules entrypoints =
   text "__start__" $+$ bisonRules (map rule entrypoints)
   where
-    rule cat = catNameWithCoerc cat
+    rule cat = sentFormCatToBisonName cat
       ++ " YYEOF { *result = {{ParseResultVariant(std::move($1))}}; }"
 
 category :: Data.Map.Map String String -> BNFC.CF.Cat -> [BNFC.CF.Rule] -> Doc
@@ -266,17 +266,20 @@ category implicitTokenNames cat rules = case cat of
       ]
     sentFormToBison :: BNFC.CF.SentForm -> String
     sentFormToBison = unwords . map (\case
-      Left cat -> case cat of
-        BNFC.CF.TokenCat tokenName ->
-          case Data.Map.lookup tokenName literalTokenInfo of
-            Nothing -> "CUSTOM_" ++ tokenName
-            Just info -> literalTokenName info
-        _ -> catNameWithCoerc cat
+      Left cat -> sentFormCatToBisonName cat
       Right s -> (case s `Data.Map.lookup` implicitTokenNames of
         Nothing -> error "string token not named"
         Just name -> name))
     rhsObjectIndices :: BNFC.CF.SentForm -> [Int]
     rhsObjectIndices rhs = [i | (Left _, i) <- zip rhs [1..]]
+
+sentFormCatToBisonName :: BNFC.CF.Cat -> String
+sentFormCatToBisonName = \case
+  BNFC.CF.TokenCat tokenName ->
+    case Data.Map.lookup tokenName literalTokenInfo of
+      Nothing -> "CUSTOM_" ++ tokenName
+      Just info -> literalTokenName info
+  cat -> catNameWithCoerc cat
 
 codeSection :: BisonUtils -> BNFC.Options.SharedOptions -> [BNFC.CF.Cat] -> Doc
 codeSection utils opts entrypoints =
