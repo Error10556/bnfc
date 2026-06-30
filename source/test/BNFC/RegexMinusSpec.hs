@@ -1,17 +1,16 @@
 module BNFC.RegexMinusSpec where
 
 import Test.Hspec
-
 import BNFC.RegexMinus
 
--- | lists matched prefix lengths in STRICTLY ASCENDING order
+-- | Lists matched prefix lengths in the STRICTLY ASCENDING order.
 match :: SimpleRegex Char -> String -> [Int]
 match = \case
   Term ch -> \case
-    h:_ -> if h == ch then [1] else []
-    _ -> []
-  Lambda -> const [0]
-  Phi -> const []
+    h : _  -> if h == ch then [1] else []
+    _      -> []
+  Lambda  -> const [0]
+  Phi     -> const []
   Rep reg -> helper 0 []
     where
       helper dropped todo s =
@@ -20,12 +19,12 @@ match = \case
           newtodo = merge todo matches
         in dropped : case newtodo of
           [] -> []
-          nx:tail -> helper nx tail $ drop (nx - dropped) s
+          nx : tail -> helper nx tail $ drop (nx - dropped) s
       matchNonempty r s = case match r s of
         0:tail -> tail
         other -> other
-  Or a b -> \s -> match a s `merge` match b s
-  Seq a b -> \s -> let
+  Or  a b -> \ s -> match a s `merge` match b s
+  Seq a b -> \ s -> let
       amatches = match a s
       amatchessuf = zip amatches $ sufs amatches s
     in mergeMany [map (+dropped) $ match b s | (dropped, s) <- amatchessuf]
@@ -33,12 +32,13 @@ match = \case
   where
     merge :: [Int] -> [Int] -> [Int]
     merge = \case
-      [] -> id
-      as@(a:at) -> \case
+      []          -> id
+      as@(a : at) -> \case
         [] -> as
-        bs@(b:bt) -> if a < b then a : merge at bs else
-          if a > b then b : merge as bt else
-          a : merge at bt
+        bs@(b : bt) -> case a `compare` b of
+          LT -> a : merge at bs
+          GT -> b : merge as bt
+          EQ -> a : merge at bt
     mergeMany :: [[Int]] -> [Int]
     mergeMany = foldr merge []
     sufs :: [Int] -> String -> [String]
@@ -46,20 +46,23 @@ match = \case
       where
         helper prevlen lens prevsuf = case lens of
           [] -> []
-          len:tail -> let newsuf = drop (len - prevlen) prevsuf in
-            newsuf : helper len tail newsuf
+          len : tail ->
+            let newsuf = drop (len - prevlen) prevsuf
+            in newsuf : helper len tail newsuf
 
+-- | Checks if a string matches a regex.
 matchFull :: SimpleRegex Char -> String -> Bool
 matchFull reg s = length s `elem` match reg s
 
+-- | Test cases.
 spec :: Spec
 spec = do
-  let
-      testcase function s expected =
+  let testcase function s expected =
         it ((if null s then "Empty" else s)
-        ++ (if expected then " matches" else " does not match"))
+          ++ (if expected then " matches" else " does not match"))
         $ function s `shouldBe` expected
 
+  -- Check that the 'matchFull' function works.
   describe "self-check" $ do
     let
       exp = Rep (Term 'a')
