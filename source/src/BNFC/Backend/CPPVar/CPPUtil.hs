@@ -10,7 +10,8 @@ module BNFC.Backend.CPPVar.CPPUtil
   , catNameWithCoerc
   , mergeCoercCats
   , GroupedRules
-  , fieldNames) where
+  , fieldNames
+  , removePrecedenceFromCat) where
 
 import Prelude hiding ((<>))
 import BNFC.CF
@@ -62,11 +63,15 @@ groupRules = foldr add Data.Map.empty . cfgRules
 mergeCoercCats :: Data.Map.Map Cat [Rule] -> Data.Map.Map Cat [Rule]
 mergeCoercCats = Data.Map.fromListWith (++) . map normPair . Data.Map.toList
   where
-    normPair (k, v) = (normCatNoList k, v)
     -- | Does NOT normalize away list items, e.g. [Expr1] -/-> [Expr]
-    normCatNoList = \case
-      CoercCat s _ -> Cat s
-      other -> other
+    normPair (k, v) = (removePrecedenceFromCat k, v)
+
+-- | The correct precedence removal function.
+-- It preserves precedence in list elements.
+removePrecedenceFromCat :: Cat -> Cat
+removePrecedenceFromCat = \case
+  CoercCat s _ -> Cat s
+  other -> other
 
 normalizeCPPName :: String -> String
 normalizeCPPName =
