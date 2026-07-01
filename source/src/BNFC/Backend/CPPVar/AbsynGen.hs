@@ -1,7 +1,6 @@
 {-|
   Module      : BNFC.Backend.CPPVar.AbsynGen
   Description : Abstract syntax node classes generator.
-  Maintainer  : Timur Usmanov <t.usmanov@innopolis.university>
 -}
 
 module BNFC.Backend.CPPVar.AbsynGen

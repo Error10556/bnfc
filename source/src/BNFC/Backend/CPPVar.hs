@@ -2,7 +2,6 @@
   Module      : BNFC.Backend.CPPVar
   Description : C++17 backend using FLex, Bison, and the standard template
                 library (especially std::variant).
-  Maintainer  : Timur Usmanov <t.usmanov@innopolis.university>
 -}
 
 module BNFC.Backend.CPPVar

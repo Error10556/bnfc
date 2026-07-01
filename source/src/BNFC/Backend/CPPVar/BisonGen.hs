@@ -1,7 +1,6 @@
 {-|
   Module      : BNFC.Backend.CPPVar.BisonGen
   Description : Abstract syntax node classes generator.
-  Maintainer  : Timur Usmanov <t.usmanov@innopolis.university>
 -}
 
 module BNFC.Backend.CPPVar.BisonGen
