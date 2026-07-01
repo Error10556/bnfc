@@ -16,16 +16,16 @@ import BNFC.Options
 import BNFC.Backend.Base
 
 import qualified BNFC.Backend.CPPVar.CPPUtil as CPPUtil
-import BNFC.Backend.CPPVar.AbsynGen
-import BNFC.Backend.CPPVar.FlexGen
-import BNFC.Backend.CPPVar.BisonGen
-import BNFC.Backend.CPPVar.PatternMatchingGen
-import BNFC.Backend.CPPVar.PrinterUtils
-import BNFC.Backend.CPPVar.SyntaxPrinterGen
-import BNFC.Backend.CPPVar.PrettyPrinterGen
-import BNFC.Backend.CPPVar.TestGen
-import BNFC.Backend.CPPVar.PrinterCommonGen
-import BNFC.Backend.CPPVar.MakefileGen
+import qualified BNFC.Backend.CPPVar.AbsynGen as AbsynGen
+import qualified BNFC.Backend.CPPVar.FlexGen as FlexGen
+import qualified BNFC.Backend.CPPVar.BisonGen as BisonGen
+import qualified BNFC.Backend.CPPVar.PatternMatchingGen as PatternMatchingGen
+import qualified BNFC.Backend.CPPVar.PrinterUtils as PrinterUtils
+import qualified BNFC.Backend.CPPVar.SyntaxPrinterGen as SyntaxPrinterGen
+import qualified BNFC.Backend.CPPVar.PrettyPrinterGen as PrettyPrinterGen
+import qualified BNFC.Backend.CPPVar.TestGen as TestGen
+import qualified BNFC.Backend.CPPVar.PrinterCommonGen as PrinterCommonGen
+import qualified BNFC.Backend.CPPVar.MakefileGen as MakefileGen
 
 {-| Generates the following files (@language@ is the basename of the LBNF
 grammar description file, as given by 'BNFC.Options.lang'):
@@ -68,27 +68,34 @@ makeCppVar ::
 makeCppVar opts cf = do
   let
     groupedRules = CPPUtil.groupRules cf
-    (absynHpp, absynCpp) = makeAbsyn opts cf groupedRules
-    (flexFile, implicitTokenNames) = makeFlex opts cf
-    bisonFile = makeBison opts cf implicitTokenNames groupedRules
-    printables = getPrintableSymbols cf groupedRules
-    (syntaxHpp, syntaxCpp) = makeSyntaxPrinter opts printables
-    (prettyHpp, prettyCpp) = makePrettyPrinter opts printables
-  mkfile absynHppFilename comment absynHpp
-  mkfile absynCppFilename comment absynCpp
-  mkfile (flexFilename opts) comment flexFile
-  mkfile (bisonFilename opts) comment bisonFile
-  mkfile patternMatchingFilename comment patternMatchingHpp
-  mkfile printerCommonHppFilename comment (makePrinterCommonHpp opts)
-  mkfile printerCommonCppFilename comment (makePrinterCommonCpp opts)
-  mkfile syntaxPrinterHppFilename comment syntaxHpp
-  mkfile syntaxPrinterCppFilename comment syntaxCpp
-  mkfile prettyPrinterHppFilename comment prettyHpp
-  mkfile prettyPrinterCppFilename comment prettyCpp
-  mkfile testFilename comment (makeTest opts)
+    AbsynGen.AbsynContents
+      { absynHppContents = absynHpp
+      , absynCppContents = absynCpp
+      } = AbsynGen.makeAbsyn opts cf groupedRules
+    (flexFile, implicitTokenNames) = FlexGen.makeFlex opts cf
+    bisonFile = BisonGen.makeBison opts cf implicitTokenNames groupedRules
+    printables = PrinterUtils.getPrintableSymbols cf groupedRules
+    (syntaxHpp, syntaxCpp) = SyntaxPrinterGen.makeSyntaxPrinter opts printables
+    (prettyHpp, prettyCpp) = PrettyPrinterGen.makePrettyPrinter opts printables
+  mkfile AbsynGen.absynHppFilename comment absynHpp
+  mkfile AbsynGen.absynCppFilename comment absynCpp
+  mkfile (FlexGen.flexFilename opts) comment flexFile
+  mkfile (BisonGen.bisonFilename opts) comment bisonFile
+  mkfile PatternMatchingGen.patternMatchingFilename comment
+    PatternMatchingGen.patternMatchingHpp
+  mkfile PrinterCommonGen.printerCommonHppFilename comment
+    $ PrinterCommonGen.makePrinterCommonHpp opts
+  mkfile PrinterCommonGen.printerCommonCppFilename comment
+    $ PrinterCommonGen.makePrinterCommonCpp opts
+  mkfile SyntaxPrinterGen.syntaxPrinterHppFilename comment syntaxHpp
+  mkfile SyntaxPrinterGen.syntaxPrinterCppFilename comment syntaxCpp
+  mkfile PrettyPrinterGen.prettyPrinterHppFilename comment prettyHpp
+  mkfile PrettyPrinterGen.prettyPrinterCppFilename comment prettyCpp
+  mkfile TestGen.testFilename comment (TestGen.makeTest opts)
   case optMake opts of
     Nothing           -> return ()
-    Just makefileName -> mkfile makefileName ("# " ++) (makeMakefile opts)
+    Just makefileName -> mkfile makefileName ("# " ++)
+      $ MakefileGen.makeMakefile opts
 
 -- | C++ comment wrapper.
 comment :: String -> String
