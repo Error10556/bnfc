@@ -10,6 +10,7 @@ import qualified BNFC.Options
 import Text.PrettyPrint
 import BNFC.Backend.CPPVar.PrinterUtils
 import Data.String.QQ (s)
+import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName)
 
 syntaxPrinterHppFilename :: String
 syntaxPrinterHppFilename = "SyntaxPrinter.hpp"
@@ -180,6 +181,6 @@ out << '\n';
     stringlikePrint name = linesToText
       [ "PrintIndentForHeader();"
       , "out << \"" ++ name ++ " \";"
-      , "PrintEscapedString(out, v.Value);"
+      , "PrintEscapedString(out, v." ++ tokenStorageName name ++ ");"
       , "out << '\\n';"
       ]

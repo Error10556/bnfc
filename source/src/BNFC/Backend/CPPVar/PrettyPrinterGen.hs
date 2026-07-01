@@ -11,6 +11,7 @@ import BNFC.Backend.CPPVar.PrinterUtils
 import Data.String.QQ
 import qualified BNFC.Options
 import qualified BNFC.CF
+import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName)
 
 prettyPrinterHppFilename :: String
 prettyPrinterHppFilename = "PrettyPrinter.hpp"
@@ -322,7 +323,7 @@ methodCustomToken :: String -> Doc
 methodCustomToken name = linesToText
   [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
   , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
-  , "    out << v.Value;"
+  , "    out << v." ++ tokenStorageName name ++ ";"
   , "    IF_BAD_COERC(" ++ name ++ ") out << ')';"
   , "}"
   ]
