@@ -1,6 +1,6 @@
 {-|
   Module      : BNFC.Backend.CPPVar.BisonGen
-  Description : Abstract syntax node classes generator.
+  Description : Bison grammar generator.
 -}
 
 module BNFC.Backend.CPPVar.BisonGen
@@ -26,7 +26,7 @@ import qualified BNFC.CF as CF
 import BNFC.CF (CF)
 
 import BNFC.Backend.CPPVar.CPPUtil
-import BNFC.Backend.CPPVar.FlexGen (scannerDecl)
+import qualified BNFC.Backend.CPPVar.FlexGen as FlexGen
 
 -- | Returns the name of the Bison grammar file.
 bisonFilename ::
@@ -38,7 +38,7 @@ bisonFilename opts = Options.lang opts ++ ".ypp"
 makeBison ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> CF                     -- ^ The grammar description.
-  -> Map String String
+  -> FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
   -> GroupedRules           -- ^ Rules grouped by the category.
   -> Doc
@@ -188,11 +188,11 @@ bisonHeader opts = linesToText
 
 -- | Generates the token definitions.
 tokenDefs ::
-     Map String String
+     FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
   -> CF  -- ^ The grammar description.
   -> Doc
-tokenDefs implicit cf = linesToText
+tokenDefs (FlexGen.NamedImplicitTokens implicit) cf = linesToText
   ["%token " ++ tkname | tkname <- Map.elems implicit]
   $+$ linesToText (map lit2token $ CF.cfgLiterals cf)
   $+$ linesToText (map (tokenDef "std::string")
@@ -320,49 +320,50 @@ startRules entrypoints =
 
 -- | Generates all Bison rules for a category.
 category ::
-     Map String String
+     FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
-  -> CF.Cat
-  -> [CF.Rule]
+  -> CF.Cat     -- ^ The nonterminal.
+  -> [CF.Rule]  -- ^ The rules that produce the nonterminal.
   -> Doc
-category implicitTokenNames cat rules = case cat of
-  CF.ListCat _ -> text (catNameWithCoerc cat) $+$ bisonRules
-      [makeRule r | r <- rules, CF.internal r == CF.Parsable]
-    where
-      makeRule r =
-        let rhs = CF.rhsRule r
-        in case CF.funName r of
-          "_"     -> coercionRule rhs
-          "(:)"   -> concat
-            [ "/* (:) */ "
-            , sentFormToBison rhs
-            , " { $$ = std::move($"
-            , show dollarList
-            , "); $$.push_front(std::move($"
-            , show dollarItem
-            , ")); }"
-            ]
-            where
-              [dollarItem, dollarList] = rhsObjectIndices rhs
-          "(:[])" -> concat
-            [ "/* (:[]) */ "
-            , sentFormToBison rhs
-            , " { $$.push_front(std::move($"
-            , show dollarItem
-            , ")); }"
-            ]
-            where
-              [dollarItem] = rhsObjectIndices rhs
-          "[]"    -> "/* [] */ " ++ sentFormToBison rhs ++ " { }"
-          name    -> error ("Invalid name for a list category: " ++ name)
+category (FlexGen.NamedImplicitTokens implicitTokenNames) cat rules =
+  case cat of
+    CF.ListCat _ -> text (catNameWithCoerc cat) $+$ bisonRules
+        [makeRule r | r <- rules, CF.internal r == CF.Parsable]
+      where
+        makeRule r =
+          let rhs = CF.rhsRule r
+          in case CF.funName r of
+            "_"     -> coercionRule rhs
+            "(:)"   -> concat
+              [ "/* (:) */ "
+              , sentFormToBison rhs
+              , " { $$ = std::move($"
+              , show dollarList
+              , "); $$.push_front(std::move($"
+              , show dollarItem
+              , ")); }"
+              ]
+              where
+                [dollarItem, dollarList] = rhsObjectIndices rhs
+            "(:[])" -> concat
+              [ "/* (:[]) */ "
+              , sentFormToBison rhs
+              , " { $$.push_front(std::move($"
+              , show dollarItem
+              , ")); }"
+              ]
+              where
+                [dollarItem] = rhsObjectIndices rhs
+            "[]"    -> "/* [] */ " ++ sentFormToBison rhs ++ " { }"
+            name    -> error ("Invalid name for a list category: " ++ name)
 
-  -- non-list
-  _ -> text (catNameWithCoerc cat) $+$ bisonRules
-      [makeRule r | r <- rules, CF.internal r == CF.Parsable]
-    where
-      makeRule r = case CF.funName r of
-        "_"  -> coercionRule (CF.rhsRule r)
-        name -> emplacementRule name (CF.rhsRule r)
+    -- non-list
+    _ -> text (catNameWithCoerc cat) $+$ bisonRules
+        [makeRule r | r <- rules, CF.internal r == CF.Parsable]
+      where
+        makeRule r = case CF.funName r of
+          "_"  -> coercionRule (CF.rhsRule r)
+          name -> emplacementRule name (CF.rhsRule r)
   where
     coercionRule :: CF.SentForm -> String
     coercionRule rhs = concat
@@ -413,7 +414,7 @@ codeSection ::
 codeSection utils opts entrypoints =
   text "#include \"PatternMatching.hpp\""
   $++$ namespaceWrap utils
-    (scannerDecl opts
+    (FlexGen.scannerDecl opts
     $++$ linesToText
   [ "void Parser::error(const std::string& msg) {"
   , "    *result = {{syntax_error(msg)}};"

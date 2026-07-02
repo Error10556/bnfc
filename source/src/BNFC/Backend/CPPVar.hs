@@ -71,7 +71,10 @@ makeCppVar opts cf = do
       { absynHppContents = absynHpp
       , absynCppContents = absynCpp
       } = AbsynGen.makeAbsyn opts cf groupedRules
-    (flexFile, implicitTokenNames) = FlexGen.makeFlex opts cf
+    FlexGen.CompiledLexer
+      { compiledLexer_flexGrammar = flexFile
+      , compiledLexer_implicitTokenNames = implicitTokenNames
+      } = FlexGen.makeFlex opts cf
     bisonFile = BisonGen.makeBison opts cf implicitTokenNames groupedRules
     printables = PrinterUtils.getPrintableSymbols cf groupedRules
     (syntaxHpp, syntaxCpp) = SyntaxPrinterGen.makeSyntaxPrinter opts printables
