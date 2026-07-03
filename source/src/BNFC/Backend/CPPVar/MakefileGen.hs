@@ -1,17 +1,71 @@
-module BNFC.Backend.CPPVar.MakefileGen
-  (makeMakefile) where
+{-|
+  Module      : BNFC.Backend.CPPVar.MakefileGen
+  Description : Makefile generator.
+-}
 
-import qualified BNFC.Options as Options
+module BNFC.Backend.CPPVar.MakefileGen
+  (
+    -- * The entrypoint
+    makeMakefile
+  ) where
+
 import Text.PrettyPrint (Doc, text, ($+$))
+import qualified BNFC.Options as Options
+
 import BNFC.Backend.CPPVar.CPPUtil
 
-makeMakefile :: Options.SharedOptions -> Doc
-makeMakefile opts = variables langname $++$ helpTextVariable langname
+-- | Generates an example Makefile to compile the parser.
+makeMakefile ::
+     Options.SharedOptions  -- ^ BNFC invokation options.
+  -> Doc
+makeMakefile opts =
+  variables langname
+  $++$ helpTextVariable langname
   $++$ rules langname
   where
     langname = Options.lang opts
 
-variables :: String -> Doc
+------------------------------------------------------------------------
+-- * Utility.
+------------------------------------------------------------------------
+
+-- | Generates a table of available targets with descriptions.
+-- Allows to specify the (minimal) width.
+makeHelpTable ::
+     Int                 -- ^ The minimal width.
+  -> [(String, String)]  -- ^ Target names and descriptions.
+  -> Doc
+makeHelpTable minWidth rows =
+  text (makeRow sTarget sDescription)
+  $+$ text (replicate (leftColSize + 1) '-'
+      ++ ('|' : replicate (rightColSize + 1) '-'))
+  $+$ linesToText (map (uncurry makeRow) rows)
+  where
+    sTarget :: String
+    sTarget = "TARGET"
+    sDescription :: String
+    sDescription = "DESCRIPTION"
+    leftColSize = foldr max (length sTarget) $ map (length . fst) rows
+    rightColSizeUnadjusted = foldr max (length sDescription)
+      $ map (length . snd) rows
+    width = max minWidth (leftColSize + rightColSizeUnadjusted + 3)
+    rightColSize = width - leftColSize - 3
+    makeRow target desc = concat
+      [target, replicate (leftColSize - length target) ' ', " | " , desc]
+
+-- | Generates a table of available targets with descriptions.
+-- The table will be at least 80 characters wide.
+makeHelpTable80 :: [(String, String)] -> Doc
+makeHelpTable80 = makeHelpTable 80 
+
+------------------------------------------------------------------------
+-- * Code generation.
+------------------------------------------------------------------------
+
+-- | Variable definitions.
+variables ::
+     String  -- ^ Language name.
+  -> Doc
 variables langname = linesToText
   [ "CXXFLAGS = -std=c++17 -Wall -Wextra -Wno-unused-but-set-variable"
   , ""
@@ -39,27 +93,7 @@ variables langname = linesToText
   , "\t" ++ langname ++ ".ypp"
   ]
 
-makeHelpTable :: Int -> [(String, String)] -> Doc
-makeHelpTable minWidth rows = text (makeRow sTarget sDescription)
-  $+$ text (replicate (leftColSize + 1) '-'
-      ++ ('|' : replicate (rightColSize + 1) '-'))
-  $+$ linesToText (map (uncurry makeRow) rows)
-  where
-    sTarget :: String
-    sTarget = "TARGET"
-    sDescription :: String
-    sDescription = "DESCRIPTION"
-    leftColSize = foldr max (length sTarget) $ map (length . fst) rows
-    rightColSizeUnadjusted = foldr max (length sDescription)
-      $ map (length . snd) rows
-    width = max minWidth (leftColSize + rightColSizeUnadjusted + 3)
-    rightColSize = width - leftColSize - 3
-    makeRow target desc = concat
-      [target, replicate (leftColSize - length target) ' ', " | " , desc]
-
-makeHelpTable80 :: [(String, String)] -> Doc
-makeHelpTable80 = makeHelpTable 80 
-
+-- | A help table for phony targets.
 phonyHelp :: Doc
 phonyHelp = makeHelpTable80
   [ ("help", "Print this message.")
@@ -69,6 +103,7 @@ phonyHelp = makeHelpTable80
   , ("clean", "Delete all files created by this Makefile and BNFC backups.")
   ]
 
+-- | A help table for file targets.
 nonPhonyHelp :: String -> Doc
 nonPhonyHelp langname = makeHelpTable80
   [ ("Test", "A program that performs parsing and prints the AST.")
@@ -80,6 +115,7 @@ nonPhonyHelp langname = makeHelpTable80
   , (langname ++ ".tab.{h,c}pp", "Contain a syntax parser implementation.")
   ]
 
+-- | Definition of the @HELPMESSAGE@ variable. Contains the help text.
 helpTextVariable :: String -> Doc
 helpTextVariable langname = text "define HELPMESSAGE"
   $+$ text "Phony targets:" $++$ phonyHelp
@@ -87,7 +123,10 @@ helpTextVariable langname = text "define HELPMESSAGE"
   $++$ text "For any *.cpp file, a corresponding *.o file can be built."
   $+$ text "endef"
 
-rules :: String -> Doc
+-- | All Makefile rules.
+rules ::
+     String  -- ^ Language name.
+  -> Doc
 rules langname = linesToText
   [ ".PHONY: all clean mostlyclean default help"
   , ""
