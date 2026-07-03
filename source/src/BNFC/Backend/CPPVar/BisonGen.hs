@@ -94,7 +94,8 @@ data BisonUtils = BisonUtils
     -- Otherwise, the empty string.
   }
 
--- | Constructs a 'BisonUtils' record respecting the 'Options.inPackage' value.
+-- | Constructs a t'BisonUtils' record respecting the
+-- 'BNFC.Options.inPackage' value.
 newBisonUtils :: Options.SharedOptions -> BisonUtils
 newBisonUtils opts = case Options.inPackage opts of
   Nothing -> BisonUtils

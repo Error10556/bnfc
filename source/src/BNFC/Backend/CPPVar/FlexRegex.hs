@@ -16,7 +16,7 @@ module BNFC.Backend.CPPVar.FlexRegex
   , flexOr
   , onebyte
 
-    -- * 'Minus.SimpleRegex' UTF-8 smart constructors
+    -- * 'BNFC.RegexMinus.SimpleRegex' UTF-8 smart constructors
   , simpleCharsetUTF8
   , simpleStringUTF8
 

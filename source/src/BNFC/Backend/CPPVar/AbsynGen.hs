@@ -150,7 +150,7 @@ data StructWithReflection = StructWithReflection
   , structWithReflection_reflection :: !Doc  -- ^ The property definitions.
   }
 
--- | Turns a list of 'StructWithReflection' into
+-- | Turns a list of t'StructWithReflection' into
 -- a list of structs with a list of reflections.
 unzipStructWithReflection ::
      [StructWithReflection]
@@ -349,7 +349,7 @@ data RuleCode = RuleCode
   , ruleCode_implementation :: !Doc  -- ^ The method implementations.
   }
 
--- | Turns a list of 'RuleCode's into
+-- | Turns a list of t'RuleCode's into
 -- a list of class declarations, a list of reflection properties, and
 -- a list of implementations.
 unzipRuleCode :: [RuleCode] -> ([Doc], [Doc], [Doc])
@@ -361,7 +361,7 @@ unzipRuleCode = foldr (\ RuleCode
   ) ([], [], [])
 
 -- | Concatenates (inserting blank lines between blocks) the corresponding
--- fields of all 'RuleCode's together.
+-- fields of all t'RuleCode's together.
 vcatRuleCode :: [RuleCode] -> RuleCode
 vcatRuleCode rules = RuleCode
   { ruleCode_declaration    = vcatSpaced decls

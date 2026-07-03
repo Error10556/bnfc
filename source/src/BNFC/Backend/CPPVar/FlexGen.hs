@@ -125,7 +125,7 @@ data BuiltInTokenUsage = BuiltInTokenUsage
   , grammarUsesDouble  :: !Bool  -- ^ Does the grammar use the @Double@ token?
   }
 
--- | Converts 'CF.cfgLiterals' into a more convenient boolean set of used
+-- | Converts 'BNFC.CF.cfgLiterals' into a more convenient boolean set of used
 -- literals.
 getBuiltInTokenUsage ::
      CF  -- ^ Grammar description.

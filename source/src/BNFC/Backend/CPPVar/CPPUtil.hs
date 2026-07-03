@@ -66,8 +66,8 @@ wrapNamespace name doc = foldr1 ($++$)
   , text $ "}  // namespace " ++ name
   ]
 
--- | Wraps a code block into a namespace given by 'Options.inPackage'. If no
--- package has been specified, does nothing.
+-- | Wraps a code block into a namespace given by 'BNFC.Options.inPackage'.
+-- If no package has been specified, does nothing.
 wrapPackage ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> Doc                    -- ^ Code to maybe wrap.
@@ -83,7 +83,7 @@ linesToText = foldr ($+$) empty . map text
 
 -- | Converts a (possibly multiline) string into a block of text.
 --
--- In particular, @unlinesToText ""@ returns 'empty'.
+-- In particular, @unlinesToText ""@ returns 'Text.PrettyPrint.empty'.
 --
 -- Is /not/ equivalent to @text@ because the latter returns a block
 -- that thinks it contains exactly one line.
@@ -107,7 +107,7 @@ groupRules = foldr add Map.empty . CF.cfgRules
       in Map.insertWith (++) cat [rule]
 
 -- | Removes precedence information from the categories (keys) of
--- 'GroupedRules'. Does not change the 'CF.Rule's (values).
+-- 'GroupedRules'. Does not change the 'BNFC.CF.Rule's (values).
 --
 -- See 'removePrecedenceFromCat'.
 mergeCoercCats :: GroupedRules -> GroupedRules
