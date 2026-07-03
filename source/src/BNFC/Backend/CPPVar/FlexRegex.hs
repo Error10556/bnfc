@@ -246,8 +246,12 @@ bytecharClass bytes
 -- Does not enclose the result in brackets.
 -- 
 -- E.g.
--- >>> @bytecharRanges ([ord '1'..ord '9'] ++ [ord \'h\'])@
--- "1-9h"
+--
+-- @bytecharRanges ([ord '1'..ord '9'] ++ [ord \'h\'])@
+--
+-- gives
+--
+-- @"1-9h"@.
 --
 -- FLex discourages ranging over different kinds of characters, so we cannot
 -- return ranges like @[A-z]@. This is taken into account.
