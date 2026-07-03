@@ -67,9 +67,9 @@ makeCppVar ::
 makeCppVar opts cf = do
   let
     groupedRules = CPPUtil.groupRules cf
-    AbsynGen.AbsynContents
-      { absynHppContents = absynHpp
-      , absynCppContents = absynCpp
+    CPPUtil.CPPHeaderSourcePair
+      { cppHeaderText = absynHpp
+      , cppSourceText = absynCpp
       } = AbsynGen.makeAbsyn opts cf groupedRules
     FlexGen.CompiledLexer
       { compiledLexer_flexGrammar = flexFile
@@ -78,7 +78,10 @@ makeCppVar opts cf = do
     bisonFile = BisonGen.makeBison opts cf implicitTokenNames groupedRules
     printables = PrinterUtils.getPrintableSymbols cf groupedRules
     (syntaxHpp, syntaxCpp) = SyntaxPrinterGen.makeSyntaxPrinter opts printables
-    (prettyHpp, prettyCpp) = PrettyPrinterGen.makePrettyPrinter opts printables
+    CPPUtil.CPPHeaderSourcePair
+      { cppHeaderText = prettyHpp
+      , cppSourceText = prettyCpp
+      } = PrettyPrinterGen.makePrettyPrinter opts printables
   mkfile AbsynGen.absynHppFilename comment absynHpp
   mkfile AbsynGen.absynCppFilename comment absynCpp
   mkfile (FlexGen.flexFilename opts) comment flexFile

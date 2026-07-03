@@ -5,8 +5,11 @@
 
 module BNFC.Backend.CPPVar.CPPUtil
   (
+    -- * C++ files
+    CPPHeaderSourcePair(..)
+
     -- * additional functions on 'Text.PrettyPrint.Doc'
-    ($++$)
+  , ($++$)
   , linesToText
   , unlinesToText
   , wrapNamespace
@@ -39,6 +42,16 @@ import Text.PrettyPrint (Doc, ($+$), text, isEmpty, empty)
 import qualified BNFC.Options as Options
 import qualified BNFC.CF as CF
 import BNFC.CF (CF)
+
+-- | A record returned from some code-generator functions,
+-- contains the text to put in the header and the source files.
+data CPPHeaderSourcePair = CPPHeaderSourcePair
+  { cppHeaderText :: !Doc
+    -- ^ The content of the header file.
+  , cppSourceText :: !Doc
+    -- ^ The content of the source file.
+  }
+
 
 -- | Concatenates vertically with an empty line between the blocks.
 ($++$) ::

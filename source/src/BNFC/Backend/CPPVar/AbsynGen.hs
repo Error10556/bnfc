@@ -8,9 +8,6 @@ module BNFC.Backend.CPPVar.AbsynGen
     -- * The entrypoint
     makeAbsyn
 
-    -- * File contents
-  , AbsynContents(..)
-
     -- * File naming
   , absynHppFilename
   , absynCppFilename
@@ -45,10 +42,10 @@ makeAbsyn ::
   -> CF             -- ^ The grammar description.
   -> GroupedRules
   -- ^ Rule labels in the grammar description, grouped by the grammar category.
-  -> AbsynContents
-makeAbsyn opts cf groupedRules = AbsynContents
-    { absynHppContents = hpp
-    , absynCppContents = cpp
+  -> CPPHeaderSourcePair
+makeAbsyn opts cf groupedRules = CPPHeaderSourcePair
+    { cppHeaderText = hpp
+    , cppSourceText = cpp
     }
   where
     maybeNamespace = wrapPackage opts
@@ -72,15 +69,6 @@ makeAbsyn opts cf groupedRules = AbsynContents
       (hppMain $++$ wrapNamespace "reflection" hppRefl)
     cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
       $++$ maybeNamespace (clonePtrImpl $++$ implTokens cf $++$ cppRules)
-
--- | A record returned from 'makeAbsyn', contains the text to put in the header
--- and the source files.
-data AbsynContents = AbsynContents
-  { absynHppContents :: !Doc
-    -- ^ The content of the abstract syntax header file.
-  , absynCppContents :: !Doc
-    -- ^ The content of the abstract syntax source file.
-  }
 
 ------------------------------------------------------------------------
 -- * Boilerplate.
