@@ -224,7 +224,7 @@ defImplicitTokens ::
 defImplicitTokens opts (NamedImplicitTokens mp) = linesToText
   [concat
     ["<INITIAL>"
-    , show (pretty (FlexRegex.flexConcatUTF8 str))
+    , show (pretty (FlexRegex.flexStringUTF8 str))
     , " return "
     , bisonParserName opts
     , "::make_"
@@ -365,7 +365,7 @@ defCustomTokens opts cf = vcatSpaced
       $+$ (text "<INITIAL>" <> pretty regFlex <> text code)
       where
         regSimple = FlexRegex.fromBNFCReg reg
-        regFlex   = FlexRegex.fromMinusRegex regSimple
+        regFlex   = FlexRegex.fromSimpleRegex regSimple
         code      = concat
           [ " return "
           , bisonParserName opts
@@ -524,7 +524,7 @@ oneLineComments ::
      CF   -- ^ Grammar description.
   -> Doc
 oneLineComments cf = foldr ($+$) empty
-  [ text "<INITIAL>" <> pretty (FlexRegex.flexConcatUTF8 s) <> text ".* ;"
+  [ text "<INITIAL>" <> pretty (FlexRegex.flexStringUTF8 s) <> text ".* ;"
   | CF.CommentS s <- CF.cfgPragmas cf]
 
 -- | Rules to discard block comments.
@@ -536,9 +536,9 @@ commentBlocks cf = foldr ($++$) empty
   where
     makeRule start end = let
         -- {start}
-        flexStart  = FlexRegex.flexConcatUTF8 start
+        flexStart  = FlexRegex.flexStringUTF8 start
         -- {end}
-        simpleEnd  = FlexRegex.simpleConcatUTF8 end
+        simpleEnd  = FlexRegex.simpleStringUTF8 end
         -- {any} := [\0-\xff]
         anyByte    = [-128..127] :: [Int8]
         -- {any}*
@@ -546,10 +546,10 @@ commentBlocks cf = foldr ($++$) empty
         -- {any}*{end}{any}*
         withEnd    = simpleAny `Minus.Seq` simpleEnd `Minus.Seq` simpleAny
         -- {any}*-{any}*{end}{any}*
-        withoutEnd = FlexRegex.fromMinusRegex $ simpleAny `Minus.Sub` withEnd
+        withoutEnd = FlexRegex.fromSimpleRegex $ simpleAny `Minus.Sub` withEnd
         -- {start}({any}*-{any}*{end}{any}*){end}
         block      = flexStart `FlexRegex.Concat` withoutEnd
-          `FlexRegex.Concat` FlexRegex.fromMinusRegex simpleEnd
+          `FlexRegex.Concat` FlexRegex.fromSimpleRegex simpleEnd
       in text "<INITIAL>" <> pretty block <> text " ;"
 
 -- | Generates the scanner class declaration. The @Scanner@ class is the

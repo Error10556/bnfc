@@ -128,7 +128,7 @@ spec = do
 
   describe "Conversion from RegexMinus" $ do
     let
-      test str minus = (show . pretty . RX.fromMinusRegex $ minus)
+      test str minus = (show . pretty . RX.fromSimpleRegex $ minus)
         `shouldBe` str
       byteterm = Term . fromIntegral . ord :: Char -> SimpleRegex Int8
 
@@ -144,13 +144,13 @@ spec = do
 
     it "(a|bc)(a|bc)* -> (a|bc)+"
       $ test "(a|bc)+"
-      $ let abc = byteterm 'a' `Or` RX.simpleConcatUTF8 "bc"
+      $ let abc = byteterm 'a' `Or` RX.simpleStringUTF8 "bc"
         in Seq abc (Rep abc)
 
     -- Phi = empty language
     it "r|Phi -> r"
       $ test "r"
-      $ Or (RX.simpleConcatUTF8 "r") Phi
+      $ Or (RX.simpleStringUTF8 "r") Phi
 
     it "a|b|Phi|c -> [a-c]"
       $ test "[a-c]"
