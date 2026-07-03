@@ -1,5 +1,3 @@
--- License: Public Domain
-
 {-|
   Module      : BNFC.RegexMinus
   Description : Converts away subtraction in regexes
@@ -108,7 +106,7 @@ data SimpleRegex a
   | Seq (SimpleRegex a) (SimpleRegex a)  -- ^ Sequence (ab)
   deriving (Eq, Ord, Show)
 
--- | Converts from richer canonical 'BNFC.Abs.Reg's
+-- | Converts from richer canonical 'Abs.Reg's
 -- to the 'SimpleRegex' representation.
 toSimpleRegex :: Ord a =>
      (Char -> SimpleRegex a)  -- ^ converts a single character.
@@ -117,7 +115,7 @@ toSimpleRegex :: Ord a =>
   -> SimpleRegex a  -- ^ all isolatin1 letters.
   -> SimpleRegex a  -- ^ all uppercase isolatin1 letters.
   -> SimpleRegex a  -- ^ all lowercase isolatin1 letters.
-  -> Abs.Reg        -- ^ the 'Reg' to simplify into a 'SimpleRegex'.
+  -> Abs.Reg        -- ^ the 'Abs.Reg' to simplify into a 'SimpleRegex'.
   -> SimpleRegex a
 toSimpleRegex fromChar any digit letter upper lower = helper
   where
@@ -155,13 +153,13 @@ string = \case
 newtype RegexID = RegexID Int
   deriving (Ord, Eq, Show)
 
--- | Extracts the 'Int' representation of the 'RegexID'.
--- Used with 'IntMap's and 'IntSet's.
+-- | Extracts the @Int@ representation of the t'RegexID'.
+-- Used with @IntMap@s and @IntSet@s.
 regexID2Int :: RegexID -> Int
 regexID2Int (RegexID i) = i
 
 -- | A more convenient representation of regex trees.
--- The empty language is represented as @v'RegexNodeOr' 'IntSet.empty'@.
+-- The empty language is represented as @v'RegexNodeOr' IntSet.empty@.
 data RegexNode a
   = RegexNodeTerm !a                -- ^ Matches the single element @a@.
   | RegexNodeEmpty                  -- ^ Matches the empty string.
@@ -181,7 +179,7 @@ data AnnotatedRegexNode a = AnnotatedRegexNode
   }
 
 -- | Bidirectional mapping:
--- 'RegexID' <-> the 'AnnotatedRegexNode' with precomputed values
+-- t'RegexID' <-> the t'AnnotatedRegexNode' with precomputed values
 data RegexTrees a = RegexTrees
   { tree2id :: (Map (RegexNode a) (AnnotatedRegexNode a))
     -- ^ Maps the tree node to its ID.
@@ -189,7 +187,7 @@ data RegexTrees a = RegexTrees
     -- ^ Maps the node ID to the tree node.
   }
 
--- | Returns the empty 'RegexTrees' data structure.
+-- | Returns the empty t'RegexTrees' data structure.
 emptyRegexTrees :: Ord a => RegexTrees a
 emptyRegexTrees = RegexTrees
   { tree2id = Map.empty
@@ -206,7 +204,7 @@ getByID (RegexID regID) mp = case regID `IntMap.lookup` id2tree mp of
 
 -- | Insert a new node into the mapping.
 -- Assumes that such an (ID, node) combination has not been inserted before.
--- Constructing the 'AnnotatedRegexNode' is the user's responsibility for
+-- Constructing the t'AnnotatedRegexNode' is the user's responsibility for
 -- performance reasons.
 insertNode :: Ord a =>
      AnnotatedRegexNode a
@@ -324,9 +322,9 @@ getOrNewSeq left right mp = let rightNode = regexNode right in
       RegexNodeOr idset -> IntSet.null idset
       _                 -> False
 
--- | Returns a new or existing regex matching a single term (e.g. 'Char').
+-- | Returns a new or existing regex matching a single term (e.g. @Char@).
 getOrNewTerm :: Ord a =>
-     a             -- ^ The singular regex term ('Char', 'Int8'...).
+     a             -- ^ The singular regex term (@Char@, @Int8@...).
   -> RegexTrees a  -- ^ The current regex collection.
   -> (RegexTrees a, AnnotatedRegexNode a)
 getOrNewTerm ch = getOrNewID (RegexNodeTerm ch) (Set.singleton ch) False
@@ -518,7 +516,7 @@ convertSub a b mp = (\ (mp, conv, _) -> (mp, conv)) $ helper a b mp 0 Map.empty
                 (regexStarts preLoop) True mp
           in getOrNewSeq preLoopStar alt mp1
 
--- | Converts an internal 'RegexNode' (represented with a 'RegexID')
+-- | Converts an internal 'RegexNode' (represented with a t'RegexID')
 -- into a 'SimpleRegex'.
 convertToSimpleRegex :: Ord a =>
      RegexID       -- ^ The regex node to convert.
