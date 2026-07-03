@@ -1,15 +1,29 @@
 {-# LANGUAGE QuasiQuotes #-}
 
+{-|
+  Module      : BNFC.Backend.CPPVar.PatternMatchingGen
+  Description : The pipe "|" operator overload.
+-}
+
 module BNFC.Backend.CPPVar.PatternMatchingGen
-  (patternMatchingFilename, patternMatchingHpp) where
+  (
+    -- * The entrypoint
+    patternMatchingHpp
+
+    -- * File naming
+  , patternMatchingFilename
+  ) where
+
+import Data.String.QQ (s)
+import Text.PrettyPrint (Doc)
 
 import BNFC.Backend.CPPVar.CPPUtil
-import Text.PrettyPrint
-import Data.String.QQ
 
+-- | The name of the header file.
 patternMatchingFilename :: String
 patternMatchingFilename = "PatternMatching.hpp"
 
+-- | The contents of the header file.
 patternMatchingHpp :: Doc
 patternMatchingHpp = unlinesToText [s|
 /************************** Pattern Matching for C++ ***************************
