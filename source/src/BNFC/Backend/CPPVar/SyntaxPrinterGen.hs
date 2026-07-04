@@ -59,15 +59,16 @@ printerClassDecl symbols = linesToText
     makeShiftLRaw s = text $ concat
       ["const SyntaxPrinter& operator<<(const SyntaxPrinter&, ", s, ");"]
     makeShiftL = \case
-      NormalCategory name -> make name
-      ListCategory {printListName = name} -> make name
-      FunctionRule rule -> make $ BNFC.CF.funName rule
-      CustomToken name -> make name
-      Ident -> make BNFC.CF.catIdent
-      String -> make BNFC.CF.catString
-      Double -> make BNFC.CF.catDouble
-      Integer -> make BNFC.CF.catInteger
-      Char -> make BNFC.CF.catChar
+      PrintableNormalCategory name -> make name
+      PrintableList
+        (PrintableListDescription {printListName = name}) -> make name
+      PrintableFunctionRule rule -> make $ BNFC.CF.funName rule
+      PrintableCustomToken name -> make name
+      PrintableIdent -> make BNFC.CF.catIdent
+      PrintableString -> make BNFC.CF.catString
+      PrintableDouble -> make BNFC.CF.catDouble
+      PrintableInteger -> make BNFC.CF.catInteger
+      PrintableChar -> make BNFC.CF.catChar
       where
         make s = makeShiftLRaw $ concat ["const ", s, "&"]
 
@@ -115,8 +116,8 @@ printerImpl symbols = linesToText
         ++ printableClassName sym ++  "& v [[maybe_unused]]) const {")
       $+$ nest 4 (makeMethodBody sym) $+$ text "}"
     makeMethodBody = \case
-      NormalCategory _ -> text "std::visit(*this, v);"
-      ListCategory {printListName=name} -> linesToText
+      PrintableNormalCategory _ -> text "std::visit(*this, v);"
+      PrintableList (PrintableListDescription {printListName=name}) -> linesToText
         [ "PrintIndentForHeader();"
         , "size_t n = v.size();"
         , "out << \"" ++ name ++ " [\" << n << \"]\\n\";"
@@ -129,29 +130,29 @@ printerImpl symbols = linesToText
         , "}"
         , "SyntaxPrinter(this, false)(v.back());"
         ]
-      CustomToken name -> stringlikePrint name
-      Ident -> unlinesToText [s|
+      PrintableCustomToken name -> stringlikePrint name
+      PrintableIdent -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Ident {" << v.Value << "}\n";
 |]
-      String -> stringlikePrint "String"
-      Integer -> unlinesToText [s|
+      PrintableString -> stringlikePrint "String"
+      PrintableInteger -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Integer " << v.Value << '\n';
 |]
-      Double -> unlinesToText [s|
+      PrintableDouble -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Double ";
 PrintDouble(out, v.Value);
 out << '\n';
 |]
-      Char -> unlinesToText [s|
+      PrintableChar -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Char ";
 PrintEscapedChar(out, v.Value);
 out << '\n';
 |]
-      FunctionRule r -> linesToText
+      PrintableFunctionRule r -> linesToText
         [ "PrintIndentForHeader();"
         , "out << \"" ++ BNFC.CF.funName r ++ "\\n\";"
         ] $+$ case myUnsnoc (fieldNames $ BNFC.CF.rhsRule r) of

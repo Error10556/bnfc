@@ -177,21 +177,15 @@ PrettyPrinter PrettyPrinter::Dedented(unsigned int minusIndent,
 -- | Generates a method that prints objects of the given type.
 makeMethod :: PrintableSymbol -> Doc
 makeMethod = \case
-  NormalCategory s -> methodCategory s
-  ListCategory
-    { printListName      = name
-    , printListItemCoerc = itemcoerc
-    , printListEmpty     = empty
-    , printListCons      = cons
-    , printListSingle    = single
-    }              -> methodList name itemcoerc empty cons single
-  FunctionRule r   -> methodFunctionRule r
-  CustomToken t    -> methodCustomToken t
-  Ident            -> methodIdent
-  String           -> methodString
-  Integer          -> methodInteger
-  Char             -> methodChar
-  Double           -> methodDouble
+  PrintableNormalCategory s -> methodCategory s
+  PrintableList listDesc    -> methodList listDesc
+  PrintableFunctionRule r   -> methodFunctionRule r
+  PrintableCustomToken t    -> methodCustomToken t
+  PrintableIdent            -> methodIdent
+  PrintableString           -> methodString
+  PrintableInteger          -> methodInteger
+  PrintableChar             -> methodChar
+  PrintableDouble           -> methodDouble
 
 -- | Generates implementations of overloaded @<<@ (Shift-Left) operators.
 operatorShLImpl :: [PrintableSymbol] -> Doc
@@ -455,16 +449,15 @@ methodCustomToken name = linesToText
   ]
 
 -- | Generates a method that prints a list category.
-methodList ::
-     String   -- ^ The name of the list category class.
-  -> Integer  -- ^ The expected precedence level of its items.
-  -> Maybe [String]  -- ^ Representation of an empty list, @[]@.
-  -> Maybe ([String], CF.Cat, [String], CF.Cat, [String])
-    -- ^ Representation of a @cons@ operation, @(:)@.
-  -> Maybe ([String], CF.Cat, [String])
-    -- ^ Representation of a singleton list, @(:[])@.
-  -> Doc
-methodList name itemcoerc empty cons single = linesToText
+methodList :: PrintableListDescription -> Doc
+methodList (PrintableListDescription
+  { printListName      = name
+  , printListItemCoerc = itemcoerc
+  , printListEmpty     = empty
+  , printListCons      = cons
+  , printListSingle    = single
+  })
+  = linesToText
   [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
   , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
   ] $+$ nest 4 body $+$ linesToText
