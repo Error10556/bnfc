@@ -69,7 +69,7 @@ makeCppVar ::
   -> MkFiles ()
 makeCppVar opts (CFG
   { cfgPragmas        = cfPragmas
-  , cfgUsedCats       = cfUsedCats
+  -- , cfgUsedCats       = cfUsedCats
   , cfgLiterals       = cfLiterals
   , cfgSymbols        = cfSymbols
   , cfgKeywords       = cfKeywords
@@ -78,6 +78,7 @@ makeCppVar opts (CFG
   let
     groupedRules       = CPPUtil.groupRules cfRules
     mergedGroupedRules = CPPUtil.mergeCoercCats groupedRules
+    cfTerminals = cfSymbols ++ cfKeywords
     AbsynGen.GeneratedAbsyn
       { absynCode = CPPUtil.CPPHeaderSourcePair
         { cppHeaderText = absynHpp
@@ -86,9 +87,9 @@ makeCppVar opts (CFG
       , absynListItemsByPointer = _
       } = AbsynGen.makeAbsyn opts cfLiterals cfPragmas mergedGroupedRules
     FlexGen.CompiledLexer
-      { compiledLexer_flexGrammar = flexFile
+      { compiledLexer_flexGrammar        = flexFile
       , compiledLexer_implicitTokenNames = implicitTokenNames
-      } = FlexGen.makeFlex opts cf
+      } = FlexGen.makeFlex opts cfLiterals cfTerminals cfPragmas
     bisonFile = BisonGen.makeBison opts cf implicitTokenNames groupedRules
     printables = PrinterUtils.getPrintableSymbols cf groupedRules
     CPPUtil.CPPHeaderSourcePair

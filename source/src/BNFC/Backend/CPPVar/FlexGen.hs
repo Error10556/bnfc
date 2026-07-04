@@ -37,7 +37,6 @@ import Text.PrettyPrint (Doc, text, ($+$), empty, (<>))
 
 -- BNFC imports
 import qualified BNFC.CF as CF
-import BNFC.CF (CF)
 import qualified BNFC.Options as Options
 import BNFC.PrettyPrint (Pretty(..))
 import BNFC.Utils (symbolToName)
@@ -55,17 +54,20 @@ flexFilename = (++ ".l") . Options.lang
 -- | Generates the FLex grammar file.
 makeFlex ::
      Options.SharedOptions  -- ^ BNFC invokation options.
-  -> CF                     -- ^ Grammar description.
+  -- -> CF                     -- ^ Grammar description.
+  -> [CF.Literal]
+  -> [String]
+  -> [CF.Pragma]
   -> CompiledLexer
-makeFlex opts cf = CompiledLexer
+makeFlex opts literals terminals pragmas = CompiledLexer
   { compiledLexer_flexGrammar = flexHead opts usedTokens
     $+$ literalTokenConditions usedTokens
     $++$ literalTokenRegexDefs usedTokens
     $++$ text "%%"
-    $++$ commentBlocks cf
-    $++$ oneLineComments cf
+    $++$ commentBlocks pragmas
+    $++$ oneLineComments pragmas
     $++$ defImplicitTokens opts tkNames
-    $++$ defCustomTokens opts cf
+    $++$ defCustomTokens opts pragmas
     $++$ defBuiltInTokens opts usedTokens
     $++$ text "<INITIAL>[\\t\\n\\f\\r\\x20]+ /* whitespace */;"
     $+$ text ("<INITIAL><<EOF>> return " ++ bisonParserName opts
@@ -77,9 +79,9 @@ makeFlex opts cf = CompiledLexer
   , compiledLexer_implicitTokenNames = tkNames
   }
   where
-    tkNames = nameAllImplicitTokens cf
+    tkNames = nameAllImplicitTokens terminals
     maybeWrapNamespace = maybe id wrapNamespace (Options.inPackage opts)
-    usedTokens = getBuiltInTokenUsage cf
+    usedTokens = getBuiltInTokenUsage literals
 
 ------------------------------------------------------------------------
 -- * Handling the generated lexer.
@@ -128,28 +130,25 @@ data BuiltInTokenUsage = BuiltInTokenUsage
   , grammarUsesDouble  :: !Bool  -- ^ Does the grammar use the @Double@ token?
   }
 
--- | Converts 'BNFC.CF.cfgLiterals' into a more convenient boolean set of used
+-- | Converts a list of used literals into a more convenient boolean set of used
 -- literals.
 getBuiltInTokenUsage ::
-     CF  -- ^ Grammar description.
+     [CF.Literal]  -- ^ All used literals.
   -> BuiltInTokenUsage
-getBuiltInTokenUsage cf = BuiltInTokenUsage
-  { grammarUsesIdent   = lookupToken CF.catIdent
-  , grammarUsesString  = lookupToken CF.catString
-  , grammarUsesChar    = lookupToken CF.catChar
-  , grammarUsesInteger = lookupToken CF.catInteger
-  , grammarUsesDouble  = lookupToken CF.catDouble
+getBuiltInTokenUsage literals = BuiltInTokenUsage
+  { grammarUsesIdent   = CF.catIdent `elem` literals
+  , grammarUsesString  = CF.catString `elem` literals
+  , grammarUsesChar    = CF.catChar `elem` literals
+  , grammarUsesInteger = CF.catInteger `elem` literals
+  , grammarUsesDouble  = CF.catDouble `elem` literals
   }
-  where
-    lookupToken name = CF.TokenCat name `elem` (CF.cfgUsedCats cf)
 
 -- | Assigns names to all tokens (terminals) specified in the grammar as literal
 -- strings.
 nameAllImplicitTokens ::
-     CF                   -- ^ Grammar description.
+     [String]             -- ^ All used terminals (keywords and symbols).
   -> NamedImplicitTokens  -- ^ Map from the token to its name.
-nameAllImplicitTokens cf = NamedImplicitTokens
-    $ helper 1 (CF.cfgKeywords cf ++ CF.cfgSymbols cf)
+nameAllImplicitTokens terminals = NamedImplicitTokens $ helper 1 terminals
   where
     helper ::
          Int       -- ^ Index (for naming unrecognized symbols)
@@ -358,11 +357,11 @@ HEXBYTE [0-9a-fA-F]{1,2}
 -- | Generates rules for user-defined tokens.
 defCustomTokens ::
      Options.SharedOptions  -- ^ BNFC invokation options.
-  -> CF                     -- ^ Grammar description.
+  -> [CF.Pragma]            -- ^ Grammar pragmas (contain token definitions).
   -> Doc
-defCustomTokens opts cf = vcatSpaced
+defCustomTokens opts pragmas = vcatSpaced
   [ makeCustomToken (CF.wpThing name) regex
-  | CF.TokenReg name _ regex <- CF.cfgPragmas cf]
+  | CF.TokenReg name _ regex <- pragmas]
   where
     makeCustomToken name reg = text ("    /* " ++ name ++ " */")
       $+$ (text "<INITIAL>" <> pretty regFlex <> text code)
@@ -524,18 +523,18 @@ defChar parser = linesToText (
 
 -- | Rules to discard one-line comments.
 oneLineComments ::
-     CF   -- ^ Grammar description.
+     [CF.Pragma]  -- ^ Grammar pragmas (contain one-line comment definitions).
   -> Doc
-oneLineComments cf = foldr ($+$) empty
+oneLineComments pragmas = foldr ($+$) empty
   [ text "<INITIAL>" <> pretty (FlexRegex.flexStringUTF8 s) <> text ".* ;"
-  | CF.CommentS s <- CF.cfgPragmas cf]
+  | CF.CommentS s <- pragmas]
 
 -- | Rules to discard block comments.
 commentBlocks ::
-     CF   -- ^ Grammar description.
+     [CF.Pragma]  -- ^ Grammar pragmas (contain block comment definitions).
   -> Doc
-commentBlocks cf = foldr ($++$) empty
-  [makeRule start end | CF.CommentM (start, end) <- CF.cfgPragmas cf]
+commentBlocks pragmas = foldr ($++$) empty
+  [makeRule start end | CF.CommentM (start, end) <- pragmas]
   where
     makeRule start end = let
         -- {start}
