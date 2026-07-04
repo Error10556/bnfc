@@ -25,7 +25,6 @@ import Text.PrettyPrint
 -- BNFC imports
 import qualified BNFC.Options as Options
 import qualified BNFC.CF as CF
-import BNFC.CF (CF)
 
 import BNFC.Backend.CPPVar.CPPUtil
 import qualified BNFC.Backend.CPPVar.FlexGen as FlexGen
@@ -39,14 +38,16 @@ bisonFilename opts = Options.lang opts ++ ".ypp"
 -- | Generates the Bison grammar file.
 makeBison ::
      Options.SharedOptions  -- ^ BNFC invokation options.
-  -> CF                     -- ^ The grammar description.
   -> FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
+  -> [CF.Literal]           -- ^ All used built-in tokens.
+  -> [CF.Pragma]            -- ^ Grammar pragmas (contain user-defined tokens).
   -> GroupedRules           -- ^ Rules grouped by the category.
   -> Doc
-makeBison opts cf implicitTokenNames groupedRules =
+makeBison opts implicitTokenNames literals pragmas
+    groupedRules@(GroupedRules rulemap) =
   bisonHeader opts
-  $++$ tokenDefs implicitTokenNames cf
+  $++$ tokenDefs implicitTokenNames literals pragmas
   $++$ codeRequires utils entrypoints
   $++$ nonterms groupedRules
   $++$ codeProvides utils entrypoints
@@ -55,12 +56,12 @@ makeBison opts cf implicitTokenNames groupedRules =
   $++$ text "%%"
   $++$ startRules entrypoints
   $++$ vcatSpaced (map (uncurry $ category implicitTokenNames)
-      $ Map.toList groupedRules)
+      $ Map.toList rulemap)
   $++$ text "%%"
   $++$ codeSection utils opts entrypoints
   where
     utils       = newBisonUtils opts
-    entrypoints = extractEntrypoints cf groupedRules
+    entrypoints = extractEntrypoints pragmas groupedRules
 
 ------------------------------------------------------------------------
 -- * General utility.
@@ -72,15 +73,17 @@ makeBison opts cf implicitTokenNames groupedRules =
 -- (Bison does not support specifying an exact starting point).
 -- Deduplicates specified categories.
 extractEntrypoints ::
-     CF            -- ^ The grammar description.
+     [CF.Pragma]   -- ^ Grammar pragmas (contain @entrypoint@ declarations).
   -> GroupedRules  -- ^ Rules grouped by category.
   -> [CF.Cat]
     -- ^ May contain the same category with different precedence levels!
-extractEntrypoints cf grouped = if null res then Map.keys grouped else res
+extractEntrypoints pragmas (GroupedRules rulemap)
+  | null res  = map nontoken2cat $ Map.keys rulemap
+  | otherwise = res
   where
     res = Set.toList $ Set.fromList $ concat
       [ map (removePrecedenceFromCat . CF.wpThing) cats
-      | CF.EntryPoints cats <- CF.cfgPragmas cf ]
+      | CF.EntryPoints cats <- pragmas]
 
 -- | A collection of commonly used functions that all depend on the options.
 data BisonUtils = BisonUtils
@@ -193,14 +196,15 @@ bisonHeader opts = linesToText
 tokenDefs ::
      FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
-  -> CF  -- ^ The grammar description.
+  -> [CF.Literal]  -- ^ All used built-in tokens.
+  -> [CF.Pragma]   -- ^ Grammar pragmas (contain user-defined tokens).
   -> Doc
-tokenDefs (FlexGen.NamedImplicitTokens implicit) cf = linesToText
+tokenDefs (FlexGen.NamedImplicitTokens implicit) literals pragmas = linesToText
   ["%token " ++ tkname | tkname <- Map.elems implicit]
-  $+$ linesToText (map lit2token $ CF.cfgLiterals cf)
+  $+$ linesToText (map lit2token literals)
   $+$ linesToText (map (tokenDef "std::string")
     ["CUSTOM_" ++ CF.wpThing name
-    | CF.TokenReg name _ _ <- CF.cfgPragmas cf])
+    | CF.TokenReg name _ _ <- pragmas])
   where
     tokenDef storageType name = concat ["%token <", storageType, "> " , name]
     lit2token catname =
@@ -226,13 +230,13 @@ codeRequires utils entrypts = bisonBraces "%code requires" $ linesToText
 
 -- | Generates declarations of nonterminals (BNFC categories).
 nonterms :: GroupedRules -> Doc
-nonterms rules = linesToText $ map nonterm $ Map.keys rules
+nonterms (GroupedRules rulemap) = linesToText $ map nonterm $ Map.keys rulemap
   where
     nonterm cat = concat
       [ "%nterm <"
-      , catNameNoCoerc cat
+      , nontokenCatNameNoCoerc cat
       , "> "
-      , catNameWithCoerc cat
+      , nontokenCatNameWithCoerc cat
       ]
 
 -- | Generates the public declarations used by the client.
@@ -325,12 +329,12 @@ startRules entrypoints =
 category ::
      FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
-  -> CF.Cat     -- ^ The nonterminal.
-  -> [CF.Rule]  -- ^ The rules that produce the nonterminal.
+  -> NontokenCategory  -- ^ The nonterminal.
+  -> [CF.Rule]         -- ^ The rules that produce the nonterminal.
   -> Doc
 category (FlexGen.NamedImplicitTokens implicitTokenNames) cat rules =
   case cat of
-    CF.ListCat _ -> text (catNameWithCoerc cat) $+$ bisonRules
+    Nontoken_ListCat _ -> text (nontokenCatNameWithCoerc cat) $+$ bisonRules
         [makeRule r | r <- rules, CF.internal r == CF.Parsable]
       where
         makeRule r =
@@ -361,7 +365,7 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames) cat rules =
             name    -> error ("Invalid name for a list category: " ++ name)
 
     -- non-list
-    _ -> text (catNameWithCoerc cat) $+$ bisonRules
+    _ -> text (nontokenCatNameWithCoerc cat) $+$ bisonRules
         [makeRule r | r <- rules, CF.internal r == CF.Parsable]
       where
         makeRule r = case CF.funName r of

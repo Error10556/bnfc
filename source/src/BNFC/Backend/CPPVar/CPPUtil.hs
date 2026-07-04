@@ -23,6 +23,7 @@ module BNFC.Backend.CPPVar.CPPUtil
   , NontokenClassCategory(..)
   , GroupedRules(..)
   , MergedGroupedRules(..)
+  , nontoken2cat
   , groupRules
   , fieldNames
   , mergeCoercCats
@@ -31,6 +32,8 @@ module BNFC.Backend.CPPVar.CPPUtil
   , removePrecedenceFromCat
   , catNameNoCoerc
   , catNameWithCoerc
+  , nontokenCatNameNoCoerc
+  , nontokenCatNameWithCoerc
   , nontokenClassCatName
   ) where
 
@@ -121,6 +124,13 @@ data NontokenCategory
   | Nontoken_CoercCat !String !Integer  -- ^ As v'CF.CoercCat'.
   | Nontoken_ListCat  !CF.Cat           -- ^ As v'CF.ListCat'.
   deriving (Eq, Ord, Show)
+
+-- | Generalizes a t'NontokenCategory'.
+nontoken2cat :: NontokenCategory -> CF.Cat
+nontoken2cat = \case
+  Nontoken_Cat name         -> CF.Cat name
+  Nontoken_CoercCat name lv -> CF.CoercCat name lv
+  Nontoken_ListCat elemCat  -> CF.ListCat elemCat
 
 -- | Rules grouped by the category.
 newtype GroupedRules = GroupedRules (Map NontokenCategory [CF.Rule])
@@ -215,6 +225,16 @@ catNameWithCoerc = \case
   CF.ListCat c -> "List" ++ catNameWithCoerc c
   CF.TokenCat w -> w
   CF.Cat w -> normalizeCPPName w
+
+-- | For a given nonterminal, returns a C identifier suitable for a class name
+-- (drops precedence information).
+nontokenCatNameNoCoerc :: NontokenCategory -> String
+nontokenCatNameNoCoerc = catNameNoCoerc . nontoken2cat
+
+-- | For a given nonterminal, returns a C identifier preserving precedence
+-- information.
+nontokenCatNameWithCoerc :: NontokenCategory -> String
+nontokenCatNameWithCoerc = catNameWithCoerc . nontoken2cat
 
 -- | For a given nonterminal, returns a C identifier suitable for a class name.
 nontokenClassCatName :: NontokenClassCategory -> String

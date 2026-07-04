@@ -22,18 +22,18 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 
 import qualified BNFC.CF as CF
-import BNFC.CF (CF)
 import BNFC.Backend.CPPVar.CPPUtil
 
 -- | A C++ type that must be supported by the printer.
 data PrintableSymbol
-  = PrintableNormalCategory !String  -- ^ Represents a @std::variant@ (a BNFC category).
-  | PrintableList !PrintableListDescription
+  = PrintableNormalCategory !String
+    -- ^ Represents a @std::variant@ (a BNFC category).
+  | PrintableList           !PrintableListDescription
     -- ^ Represents a collection (currently derived from @std::deque@)
     -- generated from a BNFC list.
-  | PrintableFunctionRule !CF.Rule
+  | PrintableFunctionRule   !CF.Rule
     -- ^ Represents a class generated from a normal rule.
-  | PrintableCustomToken !String
+  | PrintableCustomToken    !String
     -- ^ Represents a token struct generated from a user-defined token.
   | PrintableIdent    -- ^ Represents an @Ident@ token.
   | PrintableString   -- ^ Represents a @String@ token.
@@ -58,24 +58,25 @@ data PrintableListDescription = PrintableListDescription
 
 -- | Extracts printable symbols from the grammar description.
 getPrintableSymbols ::
-     CF            -- ^ The grammar description.
-  -> GroupedRules  -- ^ Grouped rules from the same grammar
-                   -- (provided to not recompute them).
+     [CF.Literal]        -- ^ All used built-in tokens.
+  -> [CF.Pragma]         -- ^ Grammar pragmas (contain custom tokens).
+  -> MergedGroupedRules  -- ^ The grammar description.
   -> [PrintableSymbol]
-getPrintableSymbols cf rulemap = literals ++ customTokens ++ nonliterals
+getPrintableSymbols cfLits cfPragmas (MergedGroupedRules rulemap) =
+  literals ++ customTokens ++ nonliterals
   where
-    literals = map (\ name -> case name `Map.lookup` literalName2Symbol of
+    literals = flip map cfLits
+      $ \ name -> case name `Map.lookup` literalName2Symbol of
         Just printable -> printable
         Nothing        -> error $ "Unsupported literal: " ++ name
-      ) $ CF.cfgLiterals cf
     customTokens =
       [ PrintableCustomToken $ CF.wpThing name
-      | CF.TokenReg name _ _ <- CF.cfgPragmas cf]
+      | CF.TokenReg name _ _ <- cfPragmas]
     nonliterals = concat
-      $ flip map (Map.toList (mergeCoercCats rulemap)) $ \case
-        (cat@(CF.ListCat itemcat), rules) -> [PrintableList
+      $ flip map (Map.toList rulemap) $ \case
+        (cat@(NontokenClass_ListCat itemcat), rules) -> [PrintableList
           $ PrintableListDescription
-            { printListName = catNameNoCoerc cat
+            { printListName = nontokenClassCatName cat
             , printListItemCoerc = case itemcat of CF.CoercCat _ i -> i; _ -> 0
             , printListEmpty = parseEmptyList <$> Map.lookup "[]" mapRules
             , printListCons = parseCons <$> Map.lookup "(:)" mapRules
@@ -83,15 +84,9 @@ getPrintableSymbols cf rulemap = literals ++ customTokens ++ nonliterals
             }]
           where
             mapRules = Map.fromList [(CF.funName r, CF.rhsRule r) | r <- rules]
-        (cat@(CF.Cat _),        rules) ->
-          makeNormalCategory (catNameNoCoerc cat) rules
-        (cat@(CF.CoercCat _ _), rules) ->
-          makeNormalCategory (catNameNoCoerc cat) rules
-        (CF.TokenCat _,         _)     -> error "TokenCat in GroupedRules"
-
-    makeNormalCategory :: String -> [CF.Rule] -> [PrintableSymbol]
-    makeNormalCategory catname rules = PrintableNormalCategory catname :
-      map PrintableFunctionRule (filter (\ r -> CF.funName r /= "_") rules)
+        (cat@(NontokenClass_Cat _),           rules) ->
+          PrintableNormalCategory (nontokenClassCatName cat)
+          : [PrintableFunctionRule r | r <- rules, CF.funName r /= "_"]
 
     -- | Consumes all strings (@Right@ values) from the start of the
     -- t'CF.SentForm', returning them in a list.

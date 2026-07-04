@@ -90,8 +90,10 @@ makeCppVar opts (CFG
       { compiledLexer_flexGrammar        = flexFile
       , compiledLexer_implicitTokenNames = implicitTokenNames
       } = FlexGen.makeFlex opts cfLiterals cfTerminals cfPragmas
-    bisonFile = BisonGen.makeBison opts cf implicitTokenNames groupedRules
-    printables = PrinterUtils.getPrintableSymbols cf groupedRules
+    bisonFile = BisonGen.makeBison
+      opts implicitTokenNames cfLiterals cfPragmas groupedRules
+    printables = PrinterUtils.getPrintableSymbols
+      cfLiterals cfPragmas mergedGroupedRules
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = syntaxHpp
       , cppSourceText = syntaxCpp
