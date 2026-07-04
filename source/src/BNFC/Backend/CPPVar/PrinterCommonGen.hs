@@ -1,23 +1,50 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module BNFC.Backend.CPPVar.PrinterCommonGen
-  ( printerCommonHppFilename
-  , printerCommonCppFilename
-  , makePrinterCommonHpp
-  , makePrinterCommonCpp) where
+{-|
+  Module      : BNFC.Backend.CPPVar.PrinterCommonGen
+  Description : Generates C++ utils that all printers use.
+-}
 
-import BNFC.PrettyPrint (Doc)
-import qualified BNFC.Options as Options
-import BNFC.Backend.CPPVar.CPPUtil
+module BNFC.Backend.CPPVar.PrinterCommonGen
+  (
+    -- * The entrypoints
+    makePrinterCommonHpp
+  , makePrinterCommonCpp
+
+    -- * File naming
+  , printerCommonHppFilename
+  , printerCommonCppFilename
+  ) where
+
+-- Language imports
 import Data.String.QQ (s)
 
+import Text.PrettyPrint (Doc)
+
+-- BNFC imports
+import qualified BNFC.Options as Options
+import BNFC.Backend.CPPVar.CPPUtil
+
+------------------------------------------------------------------------
+-- * File naming.
+------------------------------------------------------------------------
+
+-- | The name of the header file.
 printerCommonHppFilename :: String
 printerCommonHppFilename = "PrinterCommon.hpp"
 
+-- | The name of the source file.
 printerCommonCppFilename :: String
 printerCommonCppFilename = "PrinterCommon.cpp"
 
-makePrinterCommonHpp :: Options.SharedOptions -> Doc
+------------------------------------------------------------------------
+-- * The entrypoints.
+------------------------------------------------------------------------
+
+-- | Generates the header file included by printers.
+makePrinterCommonHpp ::
+     Options.SharedOptions  -- ^ BNFC invokation options.
+  -> Doc
 makePrinterCommonHpp opts = linesToText
   [ "#pragma once"
   , "#include <ostream>"
@@ -37,7 +64,10 @@ void PrintEscapedChar(std::ostream& out, int32_t ch);
 void PrintDouble(std::ostream& out, double val);
 |])
 
-makePrinterCommonCpp :: Options.SharedOptions -> Doc
+-- | Generates the implementations for printing utils.
+makePrinterCommonCpp ::
+     Options.SharedOptions  -- ^ BNFC invokation options.
+  -> Doc
 makePrinterCommonCpp opts = linesToText (lines $ [s|
 #include "PrinterCommon.hpp"
 #include <charconv>
