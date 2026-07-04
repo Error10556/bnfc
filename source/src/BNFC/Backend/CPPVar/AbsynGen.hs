@@ -416,7 +416,8 @@ vcatRuleCode rules = RuleCode
 -- | Generates the classes for all labels.
 rules :: MergedGroupedRules -> RuleCode
 rules (MergedGroupedRules rulemap) = vcatRuleCode $ map rule $ concat
-  [rules | (NontokenClass_Cat _, rules) <- Map.toList rulemap]
+  [ filter ((/= "_") . CF.funName) rules
+  | (NontokenClass_Cat _, rules) <- Map.toList rulemap]
 
 -- | Generates the declaration, properties, and implementation for a labeled
 -- BNF rule.
