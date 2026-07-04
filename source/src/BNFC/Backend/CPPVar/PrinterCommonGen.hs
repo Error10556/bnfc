@@ -3,6 +3,8 @@
 {-|
   Module      : BNFC.Backend.CPPVar.PrinterCommonGen
   Description : Generates C++ utils that all printers use.
+
+  Generates C++ utils that all printers use.
 -}
 
 module BNFC.Backend.CPPVar.PrinterCommonGen

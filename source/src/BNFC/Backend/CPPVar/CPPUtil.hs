@@ -1,6 +1,8 @@
 {-|
   Module      : BNFC.Backend.CPPVar.CPPUtil
   Description : Common functionality.
+
+  Common functionality.
 -}
 
 module BNFC.Backend.CPPVar.CPPUtil

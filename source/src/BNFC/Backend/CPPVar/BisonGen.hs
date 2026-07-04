@@ -1,6 +1,8 @@
 {-|
   Module      : BNFC.Backend.CPPVar.BisonGen
   Description : Bison grammar generator.
+
+  Bison grammar generator.
 -}
 
 module BNFC.Backend.CPPVar.BisonGen

@@ -2,6 +2,9 @@
   Module      : BNFC.Backend.CPPVar
   Description : C++17 backend using FLex, Bison, and the standard template
                 library (especially std::variant).
+
+  C++17 backend using FLex, Bison, and the standard template library
+  (especially std::variant).
 -}
 
 module BNFC.Backend.CPPVar
@@ -77,7 +80,10 @@ makeCppVar opts cf = do
       } = FlexGen.makeFlex opts cf
     bisonFile = BisonGen.makeBison opts cf implicitTokenNames groupedRules
     printables = PrinterUtils.getPrintableSymbols cf groupedRules
-    (syntaxHpp, syntaxCpp) = SyntaxPrinterGen.makeSyntaxPrinter opts printables
+    CPPUtil.CPPHeaderSourcePair
+      { cppHeaderText = syntaxHpp
+      , cppSourceText = syntaxCpp
+      } = SyntaxPrinterGen.makeSyntaxPrinter opts printables
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = prettyHpp
       , cppSourceText = prettyCpp

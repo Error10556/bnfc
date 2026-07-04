@@ -3,6 +3,8 @@
 {-|
   Module      : BNFC.Backend.CPPVar.PatternMatchingGen
   Description : The pipe "|" operator overload.
+
+  The pipe "|" operator overload.
 -}
 
 module BNFC.Backend.CPPVar.PatternMatchingGen

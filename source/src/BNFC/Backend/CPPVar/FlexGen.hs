@@ -3,7 +3,10 @@
 {-|
   Module      : BNFC.Backend.CPPVar.FlexGen
   Description : FLex grammar generator.
+
+  FLex grammar generator.
 -}
+
 module BNFC.Backend.CPPVar.FlexGen
   (
     -- * The entrypoint

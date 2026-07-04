@@ -3,6 +3,8 @@
 {-|
   Module      : BNFC.Backend.CPPVar.PrettyPrinterGen
   Description : Heuristic-driven pretty-printing of the abstract syntax tree.
+
+  Heuristic-driven pretty-printing of the abstract syntax tree.
 -}
 
 module BNFC.Backend.CPPVar.PrettyPrinterGen
@@ -47,7 +49,7 @@ prettyPrinterCppFilename = "PrettyPrinter.cpp"
 -- | Generates the @PrettyPrinter@ class (declaration and implementation).
 makePrettyPrinter ::
      BNFC.Options.SharedOptions  -- ^ BNFC invokation options.
-  -> [PrintableSymbol]           -- ^ The list of symbols to make methods for
+  -> [PrintableSymbol]           -- ^ The list of types to make methods for.
   -> CPPHeaderSourcePair
 makePrettyPrinter opts printable = CPPHeaderSourcePair
   { cppHeaderText = hpp

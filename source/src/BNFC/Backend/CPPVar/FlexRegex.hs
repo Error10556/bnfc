@@ -1,6 +1,8 @@
 {-|
   Module      : BNFC.Backend.CPPVar.FlexRegex
   Description : FLex regular expressions manipulator.
+
+  FLex regular expressions manipulator.
 -}
 
 module BNFC.Backend.CPPVar.FlexRegex

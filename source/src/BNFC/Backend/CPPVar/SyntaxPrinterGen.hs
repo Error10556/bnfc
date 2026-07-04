@@ -1,27 +1,59 @@
 {-# LANGUAGE QuasiQuotes #-}
+
+{-|
+  Module      : BNFC.Backend.CPPVar.SyntaxPrinterGen
+  Description : Printing the abstract syntax tree as it is.
+
+  Printing the abstract syntax tree as it is.
+-}
+
 module BNFC.Backend.CPPVar.SyntaxPrinterGen
-  ( syntaxPrinterHppFilename
+  (
+    -- * The entrypoint
+    makeSyntaxPrinter
+
+    -- * File naming
+  , syntaxPrinterHppFilename
   , syntaxPrinterCppFilename
-  , makeSyntaxPrinter) where
+  ) where
 
-import BNFC.Backend.CPPVar.CPPUtil
-import qualified BNFC.CF
-import qualified BNFC.Options
-import Text.PrettyPrint
-import BNFC.Backend.CPPVar.PrinterUtils
+-- Language imports
 import Data.String.QQ (s)
-import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName)
+import Text.PrettyPrint (($+$), Doc, empty, nest, text)
 
+-- BNFC imports
+import qualified BNFC.CF as CF
+import qualified BNFC.Options as Options
+
+import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName)
+import BNFC.Backend.CPPVar.CPPUtil
+import BNFC.Backend.CPPVar.PrinterUtils
+
+------------------------------------------------------------------------
+-- * File naming.
+------------------------------------------------------------------------
+
+-- | The name of the header file.
 syntaxPrinterHppFilename :: String
 syntaxPrinterHppFilename = "SyntaxPrinter.hpp"
 
+-- | The name of the source file.
 syntaxPrinterCppFilename :: String
 syntaxPrinterCppFilename = "SyntaxPrinter.cpp"
 
--- | -> (hpp, cpp)
-makeSyntaxPrinter :: BNFC.Options.SharedOptions -> [PrintableSymbol]
-  -> (Doc, Doc)
-makeSyntaxPrinter opts printable = (hpp, cpp)
+------------------------------------------------------------------------
+-- * Code generation.
+------------------------------------------------------------------------
+
+-- | Generates the @SyntaxPrinter@ class (declaration and implementation).
+makeSyntaxPrinter ::
+     Options.SharedOptions  -- ^ BNFC invokation options.
+  -> [PrintableSymbol]      -- ^ The list of types to make methods for.
+  -> CPPHeaderSourcePair
+makeSyntaxPrinter opts printable = CPPHeaderSourcePair
+  { cppHeaderText = hpp
+  , cppSourceText = cpp
+  }
   where
     hpp = linesToText
       [ "#pragma once"
@@ -34,7 +66,10 @@ makeSyntaxPrinter opts printable = (hpp, cpp)
       $++$ packwrap (printerImpl printable)
     packwrap = wrapPackage opts
 
-printerClassDecl :: [PrintableSymbol] -> Doc
+-- | Generates the class declaration.
+printerClassDecl ::
+     [PrintableSymbol]  -- ^ The list of types to make methods for.
+  -> Doc
 printerClassDecl symbols = linesToText
   [ "class SyntaxPrinter {"
   , "    std::ostream& out;"
@@ -55,61 +90,60 @@ printerClassDecl symbols = linesToText
   $+$ makeShiftLRaw "std::string_view"
   where
     makeMethodRaw s = text $ "void operator()(const " ++ s ++ "&) const;"
-    makeMethod = makeMethodRaw . printableClassName
+    makeMethod      = makeMethodRaw . printableClassName
     makeShiftLRaw s = text $ concat
       ["const SyntaxPrinter& operator<<(const SyntaxPrinter&, ", s, ");"]
-    makeShiftL = \case
+    makeShiftL      = \case
       PrintableNormalCategory name -> make name
       PrintableList
         (PrintableListDescription {printListName = name}) -> make name
-      PrintableFunctionRule rule -> make $ BNFC.CF.funName rule
-      PrintableCustomToken name -> make name
-      PrintableIdent -> make BNFC.CF.catIdent
-      PrintableString -> make BNFC.CF.catString
-      PrintableDouble -> make BNFC.CF.catDouble
-      PrintableInteger -> make BNFC.CF.catInteger
-      PrintableChar -> make BNFC.CF.catChar
+      PrintableFunctionRule rule   -> make $ CF.funName rule
+      PrintableCustomToken name    -> make name
+      PrintableIdent               -> make CF.catIdent
+      PrintableString              -> make CF.catString
+      PrintableDouble              -> make CF.catDouble
+      PrintableInteger             -> make CF.catInteger
+      PrintableChar                -> make CF.catChar
       where
         make s = makeShiftLRaw $ concat ["const ", s, "&"]
 
+-- | Generates the implementation.
 printerImpl :: [PrintableSymbol] -> Doc
-printerImpl symbols = linesToText
-  [ "SyntaxPrinter::SyntaxPrinter(const SyntaxPrinter* parent,"
-  , "                             bool currentIndentIsBranch)"
-  , "    : out(parent->out),"
-  , "      currentIndentIsBranch(currentIndentIsBranch),"
-  , "      maybeParent(parent) {}"
-  , ""
-  , "SyntaxPrinter::SyntaxPrinter(std::ostream& out)"
-  , "    : out(out), currentIndentIsBranch(false), maybeParent(nullptr) {}"
-  , ""
-  , "void SyntaxPrinter::PrintIndentForHeader() const {"
-  , "    if (!maybeParent) return;"
-  , "    maybeParent->PrintIndentAsIs();"
-  , "    out << \"+-\";"
-  , "}"
-  , ""
-  , "void SyntaxPrinter::PrintIndentAsIs() const {"
-  , "    if (!maybeParent) return;"
-  , "    maybeParent->PrintIndentAsIs();"
-  , "    out << (currentIndentIsBranch ? \"| \" : \"  \");"
-  , "}"
-  ] $++$ vcatSpaced (map makeMethod symbols)
-  $++$ linesToText
-    [ "#define SyntaxPrinterSHL(type) \\"
-    , "    const SyntaxPrinter& operator<<(" ++
-      "const SyntaxPrinter& p, const type& v) \\"
-    , "    { p(v); return p; }"
-    ] $++$ linesToText
-    ["SyntaxPrinterSHL(" ++ name ++ ");"
+printerImpl symbols = unlinesToText [s|
+SyntaxPrinter::SyntaxPrinter(const SyntaxPrinter* parent,
+                             bool currentIndentIsBranch)
+    : out(parent->out),
+      currentIndentIsBranch(currentIndentIsBranch),
+      maybeParent(parent) {}
+
+SyntaxPrinter::SyntaxPrinter(std::ostream& out)
+    : out(out), currentIndentIsBranch(false), maybeParent(nullptr) {}
+
+void SyntaxPrinter::PrintIndentForHeader() const {
+    if (!maybeParent) return;
+    maybeParent->PrintIndentAsIs();
+    out << "+-";
+}
+
+void SyntaxPrinter::PrintIndentAsIs() const {
+    if (!maybeParent) return;
+    maybeParent->PrintIndentAsIs();
+    out << (currentIndentIsBranch ? "| " : "  ");
+}
+|] $++$ vcatSpaced (map makeMethod symbols)
+  $++$ unlinesToText [s|
+#define SyntaxPrinterSHL(type)                                             \
+    const SyntaxPrinter& operator<<(const SyntaxPrinter& p, const type& v) \
+    { p(v); return p; }
+|] $++$ linesToText
+    [ "SyntaxPrinterSHL(" ++ name ++ ");"
     | name <- map printableClassName symbols]
-  $++$ linesToText
-    [ "const SyntaxPrinter& operator<<(" ++
-      "const SyntaxPrinter& p, std::string_view s) {"
-    , "    p.out << s;"
-    , "    return p;"
-    , "}"
-    ]
+  $++$ unlinesToText [s|
+const SyntaxPrinter& operator<<(const SyntaxPrinter& p, std::string_view s) {
+    p.out << s;
+    return p;
+}
+|]
   where
     makeMethod sym = text
       ("void SyntaxPrinter::operator()(const "
@@ -117,7 +151,8 @@ printerImpl symbols = linesToText
       $+$ nest 4 (makeMethodBody sym) $+$ text "}"
     makeMethodBody = \case
       PrintableNormalCategory _ -> text "std::visit(*this, v);"
-      PrintableList (PrintableListDescription {printListName=name}) -> linesToText
+      PrintableList
+        (PrintableListDescription {printListName = name}) -> linesToText
         [ "PrintIndentForHeader();"
         , "size_t n = v.size();"
         , "out << \"" ++ name ++ " [\" << n << \"]\\n\";"
@@ -131,54 +166,63 @@ printerImpl symbols = linesToText
         , "SyntaxPrinter(this, false)(v.back());"
         ]
       PrintableCustomToken name -> stringlikePrint name
-      PrintableIdent -> unlinesToText [s|
+      PrintableIdent            -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Ident {" << v.Value << "}\n";
 |]
-      PrintableString -> stringlikePrint "String"
-      PrintableInteger -> unlinesToText [s|
+      PrintableString           -> stringlikePrint "String"
+      PrintableInteger          -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Integer " << v.Value << '\n';
 |]
-      PrintableDouble -> unlinesToText [s|
+      PrintableDouble           -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Double ";
 PrintDouble(out, v.Value);
 out << '\n';
 |]
-      PrintableChar -> unlinesToText [s|
+      PrintableChar             -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Char ";
 PrintEscapedChar(out, v.Value);
 out << '\n';
 |]
-      PrintableFunctionRule r -> linesToText
+      PrintableFunctionRule r   -> linesToText
         [ "PrintIndentForHeader();"
-        , "out << \"" ++ BNFC.CF.funName r ++ "\\n\";"
-        ] $+$ case myUnsnoc (fieldNames $ BNFC.CF.rhsRule r) of
-          Nothing -> empty
+        , "out << \"" ++ CF.funName r ++ "\\n\";"
+        ] $+$ case myUnsnoc (fieldNames $ CF.rhsRule r) of
+          Nothing                              -> empty
           Just (nonlasts, (lastName, lastCat)) -> (case nonlasts of
             [] -> empty
             _ -> text "SyntaxPrinter nonlast(this, true);"
               $+$ linesToText
               [concat
-              ["nonlast(", if isPointerType cat then "*" else "",
-              "v.", name, ");"] | (name, cat) <- nonlasts])
+                [ "nonlast("
+                , if isPointerType cat then "*" else ""
+                , "v."
+                , name
+                , ");"
+                ]
+              | (name, cat) <- nonlasts])
             $+$ text (concat
-            [ "SyntaxPrinter(this, false)("
-            , if isPointerType lastCat then "*" else ""
-            , "v." , lastName, ");" ])
+              [ "SyntaxPrinter(this, false)("
+              , if isPointerType lastCat then "*" else ""
+              , "v."
+              , lastName
+              , ");"
+              ])
         where
           isPointerType = \case
-            BNFC.CF.Cat _ -> True
-            BNFC.CF.CoercCat _ _ -> True
-            _ -> False
+            CF.Cat      _   -> True
+            CF.CoercCat _ _ -> True
+            _               -> False
+          -- | @unsnoc@ is unavailable in old haskell.
           myUnsnoc :: [a] -> Maybe ([a], a)
           myUnsnoc = \case
-            [] -> Nothing
-            item:tail -> case myUnsnoc tail of
-              Nothing -> Just ([], item)
-              Just (init, last) -> Just (item:init, last)
+            []          -> Nothing
+            item : tail -> case myUnsnoc tail of
+              Nothing           -> Just ([], item)
+              Just (init, last) -> Just (item : init, last)
     stringlikePrint name = linesToText
       [ "PrintIndentForHeader();"
       , "out << \"" ++ name ++ " \";"

@@ -1,6 +1,8 @@
 {-|
   Module      : BNFC.Backend.CPPVar.MakefileGen
   Description : Makefile generator.
+  
+  Makefile generator.
 -}
 
 module BNFC.Backend.CPPVar.MakefileGen

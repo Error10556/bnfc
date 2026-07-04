@@ -1,6 +1,8 @@
 {-|
   Module      : BNFC.Backend.CPPVar.PrinterUtils
   Description : Extracts printable symbols from grammar descriptions.
+
+  Extracts printable symbols from grammar descriptions.
 -}
 
 module BNFC.Backend.CPPVar.PrinterUtils
