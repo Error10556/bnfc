@@ -10,7 +10,7 @@ module BNFC.Backend.CPPVar.CPPUtil
     -- * C++ files
     CPPHeaderSourcePair(..)
 
-    -- * additional functions on 'Text.PrettyPrint.Doc'
+    -- * Additional functions on 'Text.PrettyPrint.Doc'
   , ($++$)
   , linesToText
   , unlinesToText
@@ -18,8 +18,11 @@ module BNFC.Backend.CPPVar.CPPUtil
   , wrapPackage
   , vcatSpaced
 
-    -- * Functions to use with grammar rules
-  , GroupedRules
+    -- * Types & functions to use with grammar rules
+  , NontokenCategory(..)
+  , NontokenClassCategory(..)
+  , GroupedRules(..)
+  , MergedGroupedRules(..)
   , groupRules
   , fieldNames
   , mergeCoercCats
@@ -28,6 +31,7 @@ module BNFC.Backend.CPPVar.CPPUtil
   , removePrecedenceFromCat
   , catNameNoCoerc
   , catNameWithCoerc
+  , nontokenClassCatName
   ) where
 
 -- Language imports
@@ -43,7 +47,6 @@ import Text.PrettyPrint (Doc, ($+$), text, isEmpty, empty)
 -- BNFC imports
 import qualified BNFC.Options as Options
 import qualified BNFC.CF as CF
-import BNFC.CF (CF)
 
 -- | A record returned from some code-generator functions,
 -- contains the text to put in the header and the source files.
@@ -54,6 +57,9 @@ data CPPHeaderSourcePair = CPPHeaderSourcePair
     -- ^ The content of the source file.
   }
 
+------------------------------------------------------------------------
+-- * Additional functions on 'Text.PrettyPrint.Doc'.
+------------------------------------------------------------------------
 
 -- | Concatenates vertically with an empty line between the blocks.
 ($++$) ::
@@ -105,31 +111,64 @@ linesToText = foldr ($+$) empty . map text
 unlinesToText :: String -> Doc
 unlinesToText = linesToText . lines
 
+------------------------------------------------------------------------
+-- * Types & functions to use with grammar rules.
+------------------------------------------------------------------------
+
+-- | A grammar category that is not a v'CF.TokenCat'.
+data NontokenCategory
+  = Nontoken_Cat      !String           -- ^ As v'CF.Cat'.
+  | Nontoken_CoercCat !String !Integer  -- ^ As v'CF.CoercCat'.
+  | Nontoken_ListCat  !CF.Cat           -- ^ As v'CF.ListCat'.
+  deriving (Eq, Ord, Show)
+
 -- | Rules grouped by the category.
-type GroupedRules = Map CF.Cat [CF.Rule]
+newtype GroupedRules = GroupedRules (Map NontokenCategory [CF.Rule])
+
+-- | A grammar category that is neither a v'CF.TokenCat' nor a v'CF.CoercCat'.
+data NontokenClassCategory
+  = NontokenClass_Cat     !String  -- ^ As v'CF.Cat'.
+  | NontokenClass_ListCat !CF.Cat  -- ^ As v'CF.ListCat'.
+  deriving (Eq, Ord, Show)
+
+-- | Rules
+newtype MergedGroupedRules
+  = MergedGroupedRules (Map NontokenClassCategory [CF.Rule])
 
 -- | Group rules by the category.
 groupRules ::
-     CF  -- ^ The grammar description.
+     [CF.Rule]  -- ^ The grammar rules.
   -> GroupedRules
-groupRules = foldr add Map.empty . CF.cfgRules
+groupRules = GroupedRules . foldr add Map.empty
   where
-    add :: CF.Rule -> GroupedRules -> GroupedRules
-    add rule =
-      let
-        rcat = CF.valRCat rule
-        cat  = CF.wpThing rcat
-      in Map.insertWith (++) cat [rule]
+    add ::
+         CF.Rule
+      -> Map NontokenCategory [CF.Rule]
+      -> Map NontokenCategory [CF.Rule]
+    add rule = let
+        cat = case CF.wpThing (CF.valRCat rule) of
+          CF.Cat name           -> Nontoken_Cat name
+          CF.CoercCat name prec -> Nontoken_CoercCat name prec
+          CF.ListCat elemCat    -> Nontoken_ListCat elemCat
+          CF.TokenCat _         ->
+            error "Grammar has a production rule for a token"
+      in
+        Map.insertWith (++) cat [rule]
 
 -- | Removes precedence information from the categories (keys) of
 -- 'GroupedRules'. Does not change the 'BNFC.CF.Rule's (values).
 --
 -- See 'removePrecedenceFromCat'.
-mergeCoercCats :: GroupedRules -> GroupedRules
-mergeCoercCats = Map.fromListWith (++) . map normPair . Map.toList
+mergeCoercCats :: GroupedRules -> MergedGroupedRules
+mergeCoercCats (GroupedRules rulemap) =
+  MergedGroupedRules $ Map.fromListWith (++) $ map normPair $ Map.toList rulemap
   where
     -- | Does NOT normalize away list items, e.g. [Expr1] -/-> [Expr]
-    normPair (k, v) = (removePrecedenceFromCat k, v)
+    normPair (k, v) = (normKey k, v)
+    normKey = \case
+      Nontoken_Cat name        -> NontokenClass_Cat name
+      Nontoken_CoercCat name _ -> NontokenClass_Cat name
+      Nontoken_ListCat elemCat -> NontokenClass_ListCat elemCat
 
 -- | The correct precedence removal function.
 -- Preserves precedence in list elements.
@@ -176,6 +215,12 @@ catNameWithCoerc = \case
   CF.ListCat c -> "List" ++ catNameWithCoerc c
   CF.TokenCat w -> w
   CF.Cat w -> normalizeCPPName w
+
+-- | For a given nonterminal, returns a C identifier suitable for a class name.
+nontokenClassCatName :: NontokenClassCategory -> String
+nontokenClassCatName = \case
+  NontokenClass_Cat     n       -> normalizeCPPName n
+  NontokenClass_ListCat elemCat -> "List" ++ catNameWithCoerc elemCat
 
 -- | Returns appropriate class field names for a class representing a BNFC
 -- label. Numbers similar names.
