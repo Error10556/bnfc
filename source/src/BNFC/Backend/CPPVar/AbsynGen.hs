@@ -10,6 +10,7 @@ module BNFC.Backend.CPPVar.AbsynGen
     -- * The entrypoint
     makeAbsyn
   , GeneratedAbsyn(..)
+  , ListItemStorage(..)
 
     -- * File naming
   , absynHppFilename
@@ -22,7 +23,14 @@ module BNFC.Backend.CPPVar.AbsynGen
 -- Language imports
 import Prelude hiding ((<>))
 import qualified Data.Map as Map
-import Data.List (intercalate, partition)
+import Data.Map (Map)
+import qualified Data.IntMap as IntMap
+import Data.IntMap (IntMap)
+import qualified Data.Array as Array
+import Data.Array (Array, (!))
+import Data.List (intercalate, partition, sort)
+import qualified Data.Foldable as Foldable
+import qualified Data.Either as Either
 
 import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>))
 
@@ -53,7 +61,7 @@ makeAbsyn opts literals pragmas mergedGroupedRules = GeneratedAbsyn
     { cppHeaderText = hpp
     , cppSourceText = cpp
     }
-  , absynListItemsByPointer = {- undefined -} False
+  , absynListItemStorage = undefined
   }
   where
     maybeNamespace = wrapPackage opts
@@ -81,46 +89,310 @@ makeAbsyn opts literals pragmas mergedGroupedRules = GeneratedAbsyn
 
 -- | Code and the decision about list item storage. Returned from 'makeAbsyn'.
 data GeneratedAbsyn = GeneratedAbsyn
-  { absynCode               :: !CPPHeaderSourcePair  -- ^ Generated code.
-  , absynListItemsByPointer :: !Bool
-    -- ^ @True@ if we generated list classes storing pointers,
-    -- @False@ if storing values directly.
+  { absynCode            :: !CPPHeaderSourcePair  -- ^ Generated code.
+  , absynListItemStorage :: !ListItemStorage      -- ^ How items are stored.
   }
 
+-- | How list classes are defined.
+data ListItemStorage
+  = StoreByValue    -- ^ @std::deque<ItemClass>@.
+  | StoreByPointer  -- ^ @std::deque<std::unique_ptr<ItemClass>>@.
+
 ------------------------------------------------------------------------
--- * Handle type completeness (with reordering and pointers).
+-- * Handling type completeness (using reordering and pointers).
 ------------------------------------------------------------------------
 
--- -- | Representation of a to-be-generated class declaration.
--- -- Used in a list to specify the order of declarations.
--- data ClassDeclaration
---   = ListClassDeclaration   !CF.Cat
---     -- ^ A list class (BNFC list category).
---     -- The stored t'CF.Cat' is the list element.
---   | NormalClassDeclaration !CF.Rule  -- ^ A normal class (BNFC label).
---
--- getUnorderedClassDeclarations ::
---      MergedGroupedRules
---   -> [ClassDeclaration]
--- getUnorderedClassDeclarations (GroupedRules rulemap) =
---   flip concatMap (Map.toList rulemap) $ \case
---     (CF.ListCat elemCat, _) -> ListClassDeclaration elemCat
---     (CF.
---
--- decideClassDeclarations ::
---      CF                           -- ^ Grammar description.
---   -> Options.ListItemStorageType  -- ^ How to store items.
---   -> [ClassDeclaration]
--- decideClassDeclarations cf itemType = undefined
---
--- tryReorderClasses :: GroupedRules -> [ClassDeclaration]
--- tryReorderClasses cf = undefined
---   where
---     allDecls = getUnorderedClassDeclarations cf
---     nDecls   = length allDecls
---     classDeclaration2index :: Map ClassDeclaration Int
---     classDeclaration2index = Map.fromList $ zip allDecls [0..]
---
+{- EXPLANATION
+In C++, there are 2 kinds of declarations:
+  * forward-declarations, like @class A;@;
+  * full declarations, like @class A { public: int field; void method(); };@.
+
+This backend generates 3 kinds of classes:
+  * variants (from categories), as
+      class Cat : public std::variant<L1, L2...> {};
+  * normal classes (from labels, except "_", "(:)", "(:[])", "[]"), as
+      class Label {
+      public:
+        void SomeMethodsAndConstructors();
+        std::unique_ptr<AnotherCategory> AnotherCategory_;
+        ListCategory ListCategory_;
+        // ^ note lack of std::unique_ptr on the ListCategory
+      };
+  * lists (from BNFC lists), as
+      class ListCat : public std::deque<Cat> {};
+      OR
+      class ListCat : public std::deque<std::unique_ptr<Cat>> {};
+
+In the end, we need all classes fully declared. But to fully declare a...
+  * ...variant, we need __full declarations__ of all its /normal classes/;
+  * ...normal class, we need __forward-declarations__ of all its member
+    /variants/ and __full declarations__ of all its member /lists/.
+  * ...list, we need a forward-declaration (if unique_ptr or a good STL
+    implementation) OR a full declaration (if storing by value and a bad STL
+    implementation) of its element class.
+
+(There exist token structs, but we assume they are fully declared at the
+start of the file and do not cause problems.)
+
+However, we are always free to forward-declare a type.
+
+Here is a diagram of dependencies if lists need...
+
+  full declarations:       forward-declarations:
+
+  VARIANT <---- LIST        VARIANT <.... LIST
+   ^ |           ^           ^ |           ^      ----> needs a full decl.
+   : |           |           : |           |
+   : V           |           : V           |      ....> needs a partial decl.
+  NORMAL --------+          NORMAL --------+
+
+As we can see, a cycle is possible in the left case. Still, if there is no
+cycle, we use a depth-first search to implement topological sorting of full
+declarations.
+
+Our strategy:
+  * If --store-list-items-by=value:
+      Assume at first that a full declaration is needed for list items
+        (for maximum compatibility).
+      If that fails, assume that only a forward-declaration is needed and
+        still produce lists storing items by value. This will work with
+        GNU std::deque which only needs complete types when we call the methods
+        of std::deque.
+  * If --store-list-items-by=pointer:
+      Straightforward: list items only need forward-declarations.
+  * If --store-list-items-by=prefer-value:
+      Assume at first that a full declaration is needed for list items.
+      If this succeeds, store items by value.
+      If this fails, store items by pointer (with forward-declarations).
+-}
+
+-- | Representation of a to-be-generated class declaration.
+-- Used in a list to specify the order of declarations.
+data ClassDeclaration
+  = ListClassDeclaration    !CF.Cat
+    -- ^ A list class (BNFC list category).
+    -- The stored t'CF.Cat' is the list element, not the list category itself.
+  | NormalClassDeclaration  !CF.Rule  -- ^ A normal class (BNFC label).
+  | VariantClassDeclaration !String ![String]
+    -- ^ A @std::variant@ type synonym (BNFC category).
+  | ForwardDeclaration String         -- ^ Literally @class <name>;@.
+
+data FullClassDeclaration
+  = ListFullDeclaration    !CF.Cat
+    -- ^ A list class (BNFC list category).
+    -- The stored t'CF.Cat' is the list element, not the list category itself.
+  | NormalFullDeclaration  !CF.Rule  -- ^ A normal class (BNFC label).
+  | VariantFullDeclaration !String ![String]
+    -- ^ A @std::variant@ type synonym (BNFC category).
+
+full2justClassDecl :: FullClassDeclaration -> ClassDeclaration
+full2justClassDecl = \case
+  ListFullDeclaration    cat       -> ListClassDeclaration cat
+  NormalFullDeclaration  rule      -> NormalClassDeclaration rule
+  VariantFullDeclaration name vars -> VariantClassDeclaration name vars
+
+decideClassDeclarations ::
+     MergedGroupedRules           -- ^ Grammar description.
+  -> Options.ListItemStorageType  -- ^ User directive on how to store types.
+  -> ([ClassDeclaration], ListItemStorage)
+decideClassDeclarations grammar = \case
+  Options.ItemsStoredAlwaysByValue -> tryAndFallback StoreByValue
+  Options.ItemsStoredByValueIfNoLoops -> tryAndFallback StoreByPointer
+  Options.ItemsStoredAlwaysByPointer ->
+    case topsortClassDeclarations False topsortData of
+      Nothing    -> error'
+      Just order -> (order, StoreByPointer)
+  where
+    topsortData = prepareTopsortData $ getUnorderedClassDeclarations grammar
+    tryAndFallback fallbackProducesStorageType =
+      case topsortClassDeclarations True topsortData of
+        Just order -> (order, StoreByValue)
+        Nothing    -> case topsortClassDeclarations False topsortData of
+          Nothing    -> error'
+          Just order -> (order, fallbackProducesStorageType)
+    error' = error $ "Cannot reorder class declarations in " ++ absynHppFilename
+
+nameOfFullDecl :: FullClassDeclaration -> String
+nameOfFullDecl = \case
+  ListFullDeclaration elemCat   -> "List" ++ catNameWithCoerc elemCat
+  NormalFullDeclaration rule    -> CF.funName rule
+  VariantFullDeclaration name _ -> name
+
+getUnorderedClassDeclarations ::
+     MergedGroupedRules
+  -> [FullClassDeclaration]
+getUnorderedClassDeclarations (MergedGroupedRules rulemap) =
+  flip concatMap (Map.toList rulemap) $ \case
+    (NontokenClass_ListCat elemCat, _) -> [ListFullDeclaration elemCat]
+    (NontokenClass_Cat catname, rules) -> let
+        namesAndRules =
+          [ (name, rule)
+          | rule <- rules, let name = CF.funName rule, name /= "_"]
+      in
+        VariantFullDeclaration catname (map fst namesAndRules)
+        : map (NormalFullDeclaration . snd) namesAndRules
+
+data TopsortFullDeclarationState
+  = Undeclared
+  | ResolvingDependencies
+  | FullyDeclared
+
+type TopsortForwardDeclarationStates = IntMap Bool
+
+type TopsortFullDeclarationStates = IntMap TopsortFullDeclarationState
+
+data TopsortState = TopsortState
+  { topsortState_fwd   :: TopsortForwardDeclarationStates
+  , topsortState_fulld :: TopsortFullDeclarationStates
+  , topsortState_decls :: [ClassDeclaration]
+  }
+
+data TopsortPreparedData = TopsortPreparedData
+  { topsortPreparedData_nDecls     :: !Int
+  , topsortPreparedData_origArray  :: !(Array Int FullClassDeclaration)
+  , topsortPreparedData_declNames  :: !(Array Int String)
+  , topsortPreparedData_name2index :: !(Map String Int)
+  }
+
+prepareTopsortData :: [FullClassDeclaration] -> TopsortPreparedData
+prepareTopsortData orig = TopsortPreparedData
+  { topsortPreparedData_nDecls     = nDecls
+  , topsortPreparedData_origArray  = origArray
+  , topsortPreparedData_declNames  = declNames
+  , topsortPreparedData_name2index = name2index
+  }
+  where
+    nDecls = length orig
+    origArray = Array.listArray (0, nDecls - 1) orig
+    declNames = Array.listArray (0, nDecls - 1) $ map nameOfFullDecl orig
+    -- | We resolve classes by name hoping that class names are unique.
+    name2index :: Map String Int
+    name2index
+      | classNamesDuplicated = error
+        $ "Duplicate class names in " ++ absynHppFilename
+      | otherwise            = Map.fromDistinctAscList name2indexList
+      where
+        name2indexList = sort $ zip (Foldable.toList declNames) [0..]
+        classNamesDuplicated = foldr ((||) . uncurry (==)) False
+          $ namePairs $ map fst name2indexList
+          where
+            namePairs :: [String] -> [(String, String)]
+            namePairs = \case
+              []           -> []
+              first : tail -> helper first tail
+              where
+                helper :: String -> [String] -> [(String, String)]
+                helper cur = \case
+                  [] -> []
+                  nx : tail -> (cur, nx) : helper nx tail
+
+topsortClassDeclarations ::
+     Bool
+  -> TopsortPreparedData
+  -> Maybe [ClassDeclaration]
+topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
+  { topsortPreparedData_nDecls      = nDecls
+  , topsortPreparedData_origArray   = origArray
+  , topsortPreparedData_declNames   = declNames
+  , topsortPreparedData_name2index  = name2index
+  }) = let
+    finalState = foldr (\ classIndex -> \case
+        Nothing    -> Nothing
+        Just state -> dfsEnsureDeclared classIndex state)
+      (Just TopsortState
+        { topsortState_fwd   =
+            IntMap.fromDistinctAscList $ zip [0..nDecls - 1] $ repeat False
+        , topsortState_fulld =
+            IntMap.fromDistinctAscList $ zip [0..nDecls - 1] $ repeat Undeclared
+        , topsortState_decls = []
+        }
+      ) [nDecls, nDecls - 1 .. 0]
+  in case finalState of
+    Nothing            -> Nothing
+    Just TopsortState {topsortState_decls = decls} -> Just $ reverse decls
+  where
+    -- | The dependency graph (adjacency list) : ([full], [fwd])
+    deps :: Array Int ([Int], [Int])
+    deps = fmap getDeps origArray
+      where
+        makeListDependency :: Int -> ([Int], [Int])
+        makeListDependency i
+          | listNeedsCompleteItems = ([i], [])
+          | otherwise              = ([], [i])
+        getDeps = \case
+          ListFullDeclaration elemCat -> case elemCat of
+            CF.TokenCat _ -> ([], [])
+            _             ->
+              makeListDependency $ lookupName2index $ catNameWithCoerc elemCat
+          NormalFullDeclaration rule ->
+            foldr (\ cat res@(resFull, resFwd) -> case cat of
+                CF.TokenCat _ -> res
+                CF.ListCat _  ->
+                  ( lookupName2index (catNameNoCoerc cat) : resFull
+                  , resFwd
+                  )
+                _             ->
+                  ( resFull
+                  , lookupName2index (catNameNoCoerc cat) : resFwd
+                  )
+              ) ([], []) $ Either.lefts $ CF.rhsRule rule
+          VariantFullDeclaration _ depNames ->
+            (map lookupName2index depNames, [])
+
+    dfsEnsureDeclared :: Int -> TopsortState -> Maybe TopsortState
+    dfsEnsureDeclared classIndex state =
+      case classIndex `doLookupIntMap` topsortState_fulld state of
+        ResolvingDependencies -> Nothing  -- dependency loop
+        FullyDeclared         -> Just state
+        Undeclared            -> let
+            lockedThis = state
+              { topsortState_fulld =
+                  IntMap.insert classIndex ResolvingDependencies
+                  $ topsortState_fulld state
+              }
+            (myFullDeps, myFwdDeps) = deps ! classIndex
+            stateWithFullDeps = foldr (\ depIndex -> \case
+                Nothing     -> Nothing
+                Just _state -> dfsEnsureDeclared depIndex _state
+              ) (Just lockedThis) myFullDeps
+            stateWithAllDeps =
+              flip (foldr (\ depIndex -> ensureForwardDeclared depIndex))
+                myFwdDeps <$> stateWithFullDeps
+          in case stateWithAllDeps of
+            Nothing -> Nothing
+            Just (TopsortState
+              { topsortState_fwd   = fwdState'
+              , topsortState_fulld = fullDeclState'
+              , topsortState_decls = decls'
+              }) -> Just TopsortState
+                { topsortState_fwd   = fwdState'
+                , topsortState_fulld =
+                    IntMap.insert classIndex FullyDeclared fullDeclState'
+                , topsortState_decls =
+                    full2justClassDecl (origArray ! classIndex) : decls'
+                }
+
+    ensureForwardDeclared :: Int -> TopsortState -> TopsortState
+    ensureForwardDeclared classIndex state@(TopsortState
+        { topsortState_fwd   = fwdState
+        , topsortState_fulld = fullDeclState
+        , topsortState_decls = decls
+        })
+      | classIndex `doLookupIntMap` fwdState = state
+      | otherwise                            = TopsortState
+        { topsortState_fwd   = IntMap.insert classIndex True fwdState
+        , topsortState_fulld = fullDeclState
+        , topsortState_decls =
+            ForwardDeclaration (declNames ! classIndex) : decls
+        }
+
+    lookupName2index name = case name `Map.lookup` name2index of
+      Nothing -> error $ "name2index did not contain class name: " ++ name
+      Just i  -> i
+    doLookupIntMap :: Int -> IntMap a -> a
+    doLookupIntMap i map = case IntMap.lookup i map of
+      Nothing  -> error "Index not found in IntMap"
+      Just res -> res
 
 ------------------------------------------------------------------------
 -- * Boilerplate.
