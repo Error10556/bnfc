@@ -259,7 +259,7 @@ prepareTopsortData orig = TopsortPreparedData
   , topsortPreparedData_name2index = name2index
   }
   where
-    nDecls = length orig
+    nDecls    = length orig
     origArray = Array.listArray (0, nDecls - 1) orig
     declNames = Array.listArray (0, nDecls - 1) $ map nameOfFullDecl orig
     -- | We resolve classes by name hoping that class names are unique.
@@ -303,7 +303,7 @@ topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
             IntMap.fromDistinctAscList $ zip [0..nDecls - 1] $ repeat Undeclared
         , topsortState_decls = []
         }
-      ) [nDecls, nDecls - 1 .. 0]
+      ) [nDecls - 1, nDecls - 2 .. 0]
   in case finalState of
     Nothing            -> Nothing
     Just TopsortState {topsortState_decls = decls} -> Just $ reverse decls
@@ -362,7 +362,8 @@ topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
               , topsortState_fulld = fullDeclState'
               , topsortState_decls = decls'
               }) -> Just TopsortState
-                { topsortState_fwd   = fwdState'
+                { topsortState_fwd   =
+                    IntMap.insert classIndex True fwdState'
                 , topsortState_fulld =
                     IntMap.insert classIndex FullyDeclared fullDeclState'
                 , topsortState_decls =
@@ -388,7 +389,8 @@ topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
       Just i  -> i
     doLookupIntMap :: Int -> IntMap a -> a
     doLookupIntMap i map = case IntMap.lookup i map of
-      Nothing  -> error "Index not found in IntMap"
+      Nothing  -> error $ "Index " ++ show i ++ " not found in IntMap with "
+        ++ show (IntMap.keys map)
       Just res -> res
 
 ------------------------------------------------------------------------
@@ -676,17 +678,17 @@ variantDef ::
   -> [String]
   -> AbsynNodeCode
 variantDef name variants = AbsynNodeCode
-  { absynNodeCode_declaration =
-      text ("class " ++ name ++ " : public std::variant<"
-        ++ intercalate ", " variants ++ "> {") <> maybeBody
+  { absynNodeCode_declaration = case variants of
+    [singleVariant] -> classTop $+$ singleVariantBody singleVariant
+    _               -> classTop <> text "};"
   , absynNodeCode_reflection = rawNodeNameSpec name
   , absynNodeCode_implementation = empty
   }
   where
-    maybeBody = case variants of
-      [singleVariant] -> linesToText
-        [ ""
-        , "public:"
+    classTop = text ("class " ++ name ++ " : public std::variant<"
+        ++ intercalate ", " variants ++ "> {")
+    singleVariantBody singleVariant = linesToText
+        [ "public:"
         , "    inline class " ++ singleVariant ++ "& " ++ singleVariant
           ++ "() {"
         , "        return std::get<class " ++ singleVariant ++ ">(*this);"
@@ -697,7 +699,6 @@ variantDef name variants = AbsynNodeCode
         , "    }"
         , "};"
         ]
-      _               -> text "};"
 
 -- | Generates the declaration, properties, and implementation for a labeled
 -- BNF rule.
