@@ -13,6 +13,7 @@ module BNFC.Options
   , defaultOptions, isDefault, printOptions
   , AlexVersion(..), HappyMode(..), OCamlParser(..), JavaLexerParser(..)
   , RecordPositions(..), TokenText(..), Positions(..)
+  , ListItemStorageType(..)
   , Ansi(..)
   , InPackage
   , removedIn290
@@ -29,6 +30,7 @@ import Data.Either     (partitionEithers)
 import qualified Data.Map  as Map
 -- import qualified Data.List as List
 import Data.Maybe      (fromMaybe, maybeToList)
+import Data.List       (intercalate)
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup  (Semigroup(..))  -- for ghc 7.10 - 8.2
 #endif
@@ -112,6 +114,34 @@ data Ansi = Ansi | BeyondAnsi
 -- | Package name (C++ and Java backends).
 type InPackage = Maybe String
 
+-- | How list items are stored (C++ with @std::variant@ backend).
+data ListItemStorageType
+  = ItemsStoredAlwaysByValue  -- ^ As-is (@std::deque<ItemClass>@).
+  | ItemsStoredAlwaysByPointer
+    -- ^ As a pointer (@std::deque<std::unique_ptr<ItemClass>>@).
+  | ItemsStoredByValueIfNoLoops
+    -- ^ Prefer by-value storage (@std::deque<ItemClass>@) if it is possible to
+    -- reorder class declarations to make all class-types complete. If it is
+    -- not (e.g. when the grammar defines @A. Expr ::= [Expr];@), use pointers
+    -- (@std::deque<std::unique_ptr<ItemClass>>@).
+  deriving (Eq, Ord, Enum, Bounded)
+
+instance Show ListItemStorageType where
+  show = \case
+    ItemsStoredAlwaysByValue    -> "value"
+    ItemsStoredAlwaysByPointer  -> "pointer"
+    ItemsStoredByValueIfNoLoops -> "prefer-value"
+
+-- | Interprets user-specified --store-list-items-by argument.
+parseListItemStorageType :: String -> ListItemStorageType
+parseListItemStorageType = \case
+  "value"        -> ItemsStoredAlwaysByValue
+  "pointer"      -> ItemsStoredAlwaysByPointer
+  "prefer-value" -> ItemsStoredByValueIfNoLoops
+  "preferValue"  -> ItemsStoredByValueIfNoLoops
+  "prefer_value" -> ItemsStoredByValueIfNoLoops
+  other          -> error $ "Unrecognized ListItemStorageType: " ++ other
+
 -- | How to represent token content in the Haskell backend?
 
 data TokenText
@@ -158,6 +188,8 @@ data SharedOptions = Options
   , inPackage   :: InPackage       -- ^ The hierarchical package to put the modules in, or Nothing.
   , linenumbers :: RecordPositions -- ^ Add and set line_number field for syntax classes
   , ansi        :: Ansi            -- ^ Restrict to the ANSI language standard (C/C++)?
+  --- C++-with-variants specific:
+  , listItemStorage :: ListItemStorageType -- ^ What lists contain: values or pointers.
   --- Haskell specific:
   , inDir         :: Bool        -- ^ Option @-d@.
   , positions     :: Positions   -- ^ Options @--positions@ (or legacy @--functor@). Make AST functorial? What to include?
@@ -194,6 +226,8 @@ defaultOptions = Options
   , inPackage       = Nothing
   , linenumbers     = NoRecordPositions
   , ansi            = BeyondAnsi
+  -- C++-with-variants specific
+  , listItemStorage = ItemsStoredByValueIfNoLoops
   -- Haskell specific
   , inDir           = False
   , positions       = None
@@ -375,6 +409,16 @@ specificOptions =
       (ReqArg (\n o -> o {inPackage = Just n}) "NAMESPACE")
           "Prepend NAMESPACE to the package/module name"
     , [TargetCpp, TargetCppVariants, TargetJava] ++ haskellTargets)
+  , ( Option [] ["store-list-items-by"]
+      (ReqArg (\ n o -> o { listItemStorage = parseListItemStorageType n })
+        (intercalate "|" $ map show ([minBound..] :: [ListItemStorageType])))
+        $ unlines
+          [ "Specify if list items should be stored by value or as pointers."
+          , "For some C++ STL implementations, the \"value\" option will fail"
+          , "if the grammar has lists that indirectly contain themselves."
+          , "The default is \"prefer-value\"."
+          ]
+    , [TargetCppVariants])
   -- Java backend:
   , ( Option [] ["jlex"  ] (NoArg (\o -> o {javaLexerParser = JLexCup}))
           "Lex with JLex, parse with CUP (default)"
