@@ -84,7 +84,7 @@ makeCppVar opts (CFG
         { cppHeaderText = absynHpp
         , cppSourceText = absynCpp
         }
-      , absynListItemsByPointer = _
+      , absynListItemStorage = _
       } = AbsynGen.makeAbsyn opts cfLiterals cfPragmas mergedGroupedRules
     FlexGen.CompiledLexer
       { compiledLexer_flexGrammar        = flexFile

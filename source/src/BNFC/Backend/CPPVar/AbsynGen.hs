@@ -28,7 +28,7 @@ import qualified Data.IntMap as IntMap
 import Data.IntMap (IntMap)
 import qualified Data.Array as Array
 import Data.Array (Array, (!))
-import Data.List (intercalate, partition, sort)
+import Data.List (intercalate, sort)
 import qualified Data.Foldable as Foldable
 import qualified Data.Either as Either
 
@@ -61,7 +61,7 @@ makeAbsyn opts literals pragmas mergedGroupedRules = GeneratedAbsyn
     { cppHeaderText = hpp
     , cppSourceText = cpp
     }
-  , absynListItemStorage = undefined
+  , absynListItemStorage = listStorage
   }
   where
     maybeNamespace = wrapPackage opts
@@ -69,18 +69,15 @@ makeAbsyn opts literals pragmas mergedGroupedRules = GeneratedAbsyn
       { structWithReflection_struct = hppTokenStructs
       , structWithReflection_reflection = hppTokenRefl
       } = headerTokens literals pragmas
-    StructWithReflection
-      { structWithReflection_struct = hppCatDefs
-      , structWithReflection_reflection = hppCatRefl
-      } = headerCats mergedGroupedRules
-    RuleCode
-      { ruleCode_declaration = hppRules
-      , ruleCode_reflection = hppRuleRefl
-      , ruleCode_implementation = cppRules
-      } = rules mergedGroupedRules
-    hppMain = hppTokenStructs $++$ hppCatDefs $++$ hppRules
-    hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppCatRefl
-      $++$ hppRuleRefl
+    (classOrder, listStorage) =
+      decideClassDeclarations mergedGroupedRules $ Options.listItemStorage opts
+    AbsynNodeCode
+      { absynNodeCode_declaration = hppClassDecls
+      , absynNodeCode_reflection = hppClassRefl
+      , absynNodeCode_implementation = cppRules
+      } = defineAllClasses listStorage classOrder
+    hppMain = hppTokenStructs $++$ hppClassDecls
+    hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppClassRefl
     hpp = headerHead $++$ maybeNamespace
       (hppMain $++$ wrapNamespace "reflection" hppRefl)
     cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
@@ -609,92 +606,103 @@ implTokens lits pragmas = vcatSpaced $ litTokens ++ userTokens
     makeUserToken s = tokenStructWithRefConstructorsImpl s "std::string"
 
 ------------------------------------------------------------------------
--- * Categories (nonterminals).
-------------------------------------------------------------------------
-
--- | Generates declarations for all categories.
-headerCats ::
-     MergedGroupedRules
-  -> StructWithReflection
-headerCats (MergedGroupedRules rulemap) = StructWithReflection
-  { structWithReflection_struct     = vcatSpaced defs
-  , structWithReflection_reflection = vcatSpaced refls
-  }
-  where
-    -- We put all lists _after_ the normal categories (and tokens) so that
-    -- the list elements are already declared when we declare the lists.
-    (defs, refls) = unzipStructWithReflection
-      $ map toDocument (nonlists ++ lists)
-    (lists, nonlists) = partition (\ (cat, _) ->
-        case cat of
-          NontokenClass_Cat     _ -> False
-          NontokenClass_ListCat _ -> True
-      ) $ Map.toList rulemap
-    toDocument :: (NontokenClassCategory, [CF.Rule]) -> StructWithReflection
-    toDocument (cat, rules) =
-      let name = nontokenClassCatName cat
-      in case cat of
-        NontokenClass_ListCat elemCat -> StructWithReflection
-          { structWithReflection_struct =
-              text $ "struct " ++ name ++ " : public std::deque<"
-              ++ catNameNoCoerc elemCat ++ "> {};"
-          , structWithReflection_reflection =
-              rawCoercionSpec name 0 $+$ rawNodeNameSpec name
-          }
-        NontokenClass_Cat     _       ->
-          let ruleNames = filter (/= "_") $ map CF.funName rules
-          in StructWithReflection
-            { structWithReflection_struct =
-                linesToText (map (("class " ++) . (++ ";")) ruleNames)
-                $+$ text ("using " ++ name ++ " = std::variant<"
-                  ++ intercalate ", " ruleNames ++ ">;")
-            , structWithReflection_reflection = rawNodeNameSpec name
-            }
-
-------------------------------------------------------------------------
--- * Label classes.
+-- * Categories (nonterminals) and rules.
 ------------------------------------------------------------------------
 
 -- | A record combining the declaration, property definitions, and
 -- implementation of a rule label class.
-data RuleCode = RuleCode
-  { ruleCode_declaration    :: !Doc  -- ^ The class declaration.
-  , ruleCode_reflection     :: !Doc  -- ^ The properties.
-  , ruleCode_implementation :: !Doc  -- ^ The method implementations.
+data AbsynNodeCode = AbsynNodeCode
+  { absynNodeCode_declaration    :: !Doc  -- ^ The class declaration.
+  , absynNodeCode_reflection     :: !Doc  -- ^ The properties.
+  , absynNodeCode_implementation :: !Doc  -- ^ The method implementations.
   }
 
--- | Turns a list of t'RuleCode's into
--- a list of class declarations, a list of reflection properties, and
--- a list of implementations.
-unzipRuleCode :: [RuleCode] -> ([Doc], [Doc], [Doc])
-unzipRuleCode = foldr (\ RuleCode
-    { ruleCode_declaration    = decl
-    , ruleCode_reflection     = refl
-    , ruleCode_implementation = impl
-    } (decls, refls, impls) -> (decl : decls, refl : refls, impl : impls)
-  ) ([], [], [])
+defineAllClasses ::
+     ListItemStorage  -- ^ How to store the elements.
+  -> [ClassDeclaration]
+  -> AbsynNodeCode
+defineAllClasses storeListItemsBy decls = foldr (\ decl code ->
+    case decl of
+      ListClassDeclaration elemCat ->
+        vcatSpaced (listDef storeListItemsBy elemCat) code
+      NormalClassDeclaration rule ->
+        vcatSpaced (ruleDef rule) code
+      VariantClassDeclaration name vars ->
+        vcatSpaced (variantDef name vars) code
+      ForwardDeclaration name -> code
+        {absynNodeCode_declaration =
+          text ("class " ++ name ++ ";") $+$ absynNodeCode_declaration code}
+  ) AbsynNodeCode
+  { absynNodeCode_declaration    = empty
+  , absynNodeCode_reflection     = empty
+  , absynNodeCode_implementation = empty
+  } decls
+  where
+    vcatSpaced (AbsynNodeCode
+      { absynNodeCode_declaration    = ldecl
+      , absynNodeCode_reflection     = lrefl
+      , absynNodeCode_implementation = limpl
+      }) (AbsynNodeCode
+      { absynNodeCode_declaration    = rdecl
+      , absynNodeCode_reflection     = rrefl
+      , absynNodeCode_implementation = rimpl
+      }) = AbsynNodeCode
+        { absynNodeCode_declaration    = ldecl $++$ rdecl
+        , absynNodeCode_reflection     = lrefl $++$ rrefl
+        , absynNodeCode_implementation = limpl $++$ rimpl
+        }
 
--- | Concatenates (inserting blank lines between blocks) the corresponding
--- fields of all t'RuleCode's together.
-vcatRuleCode :: [RuleCode] -> RuleCode
-vcatRuleCode rules = RuleCode
-  { ruleCode_declaration    = vcatSpaced decls
-  , ruleCode_reflection     = vcatSpaced refls
-  , ruleCode_implementation = vcatSpaced impls
+-- | Generates code for a v'ListClassDeclaration'.
+listDef ::
+     ListItemStorage  -- ^ How to store the elements.
+  -> CF.Cat           -- ^ Type of elements.
+  -> AbsynNodeCode
+listDef storeBy elemCat = AbsynNodeCode
+  { absynNodeCode_declaration =
+      text $ "class " ++ name ++ " : public std::deque<"
+      ++ wrapStorage (catNameNoCoerc elemCat) ++ "> {};"
+  , absynNodeCode_reflection =
+      rawCoercionSpec name 0 $+$ rawNodeNameSpec name
+  , absynNodeCode_implementation = empty
   }
   where
-    (decls, refls, impls) = unzipRuleCode rules
+    wrapStorage = case storeBy of
+      StoreByValue   -> id
+      StoreByPointer -> \ s -> concat ["std::unique_ptr<", s, ">"]
+    name = "List" ++ catNameWithCoerc elemCat
 
--- | Generates the classes for all labels.
-rules :: MergedGroupedRules -> RuleCode
-rules (MergedGroupedRules rulemap) = vcatRuleCode $ map rule $ concat
-  [ filter ((/= "_") . CF.funName) rules
-  | (NontokenClass_Cat _, rules) <- Map.toList rulemap]
+variantDef ::
+     String
+  -> [String]
+  -> AbsynNodeCode
+variantDef name variants = AbsynNodeCode
+  { absynNodeCode_declaration =
+      text ("class " ++ name ++ " : public std::variant<"
+        ++ intercalate ", " variants ++ "> {") <> maybeBody
+  , absynNodeCode_reflection = rawNodeNameSpec name
+  , absynNodeCode_implementation = empty
+  }
+  where
+    maybeBody = case variants of
+      [singleVariant] -> linesToText
+        [ ""
+        , "public:"
+        , "    inline class " ++ singleVariant ++ "& " ++ singleVariant
+          ++ "() {"
+        , "        return std::get<class " ++ singleVariant ++ ">(*this);"
+        , "    }"
+        , "    inline const class " ++ singleVariant ++ "& " ++ singleVariant
+          ++ "() const {"
+        , "        return std::get<class " ++ singleVariant ++ ">(*this);"
+        , "    }"
+        , "};"
+        ]
+      _               -> text "};"
 
 -- | Generates the declaration, properties, and implementation for a labeled
 -- BNF rule.
-rule :: CF.Rule -> RuleCode
-rule r = let
+ruleDef :: CF.Rule -> AbsynNodeCode
+ruleDef r = let
     name = CF.funName r
     (indexedNames, members) = unzip $ fieldNames $ CF.rhsRule r
     storageTypes = map storageType' members
@@ -766,10 +774,10 @@ rule r = let
       , ruleCtorOrEmpty
       ]
 
-  in RuleCode
-    { ruleCode_declaration = headerClass
-    , ruleCode_reflection = headerRefls
-    , ruleCode_implementation = impl
+  in AbsynNodeCode
+    { absynNodeCode_declaration = headerClass
+    , absynNodeCode_reflection = headerRefls
+    , absynNodeCode_implementation = impl
     }
   where
     storageType' :: CF.Cat -> String
