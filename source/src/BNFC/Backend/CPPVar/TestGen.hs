@@ -1,19 +1,36 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module BNFC.Backend.CPPVar.TestGen (testFilename, makeTest) where
+{-|
+  Module      : BNFC.Backend.CPPVar.TestGen
+  Description : Generates an example parser for testing.
 
-import BNFC.Backend.CPPVar.CPPUtil
-import Text.PrettyPrint
+  Generates an example parser for testing.
+-}
+
+module BNFC.Backend.CPPVar.TestGen
+  (
+    -- * The entrypoint
+    makeTest
+
+    -- * File naming
+  , testFilename
+  ) where
+
 import Data.String.QQ
-import BNFC.Options (SharedOptions, inPackage, lang)
+import Text.PrettyPrint
 
+import qualified BNFC.Options as Options
+import BNFC.Backend.CPPVar.CPPUtil
+
+-- | The name of the source file.
 testFilename :: String
 testFilename = "Test.cpp"
 
-makeTest :: SharedOptions -> Doc
+-- | Generates the example parser code.
+makeTest :: Options.SharedOptions -> Doc
 makeTest opts = let
-    ns = case inPackage opts of
-      Nothing -> ""
+    ns = case Options.inPackage opts of
+      Nothing   -> ""
       Just name -> name ++ "::"
   in unlinesToText [s|
 #include <cstring>
@@ -22,7 +39,9 @@ makeTest opts = let
 #include "Absyn.hpp"
 #include "PrettyPrinter.hpp"
 #include "SyntaxPrinter.hpp"
-|] $+$ text ("#include \"" ++ lang opts ++ ".tab.hpp\"") $+$ unlinesToText [s|
+|]
+  $+$ text ("#include \"" ++ Options.lang opts ++ ".tab.hpp\"")
+  $+$ unlinesToText [s|
 #include "PatternMatching.hpp"
 using namespace std;
 
@@ -113,7 +132,8 @@ Options:
         }
         cout << filename << '\n';
 
-|] $+$ linesToText
+|]
+  $+$ linesToText
   [ "        " ++ ns ++ "Parse(file) | PatternMatch{"
   , "            [&](" ++ ns ++ "Parser::syntax_error&& err) {"
   , "                cout << \"Could not parse!\\nError: \" "
@@ -127,7 +147,8 @@ Options:
   , "                }"
   , "                if (pretty) {"
   , "                    ast | " ++ ns ++ "PrettyPrinter(cout);"
-  ] $+$ unlinesToText [s|
+  ]
+  $+$ unlinesToText [s|
                     cout << "\n\n";
                 }
                 if (!tree && !pretty) cout << "OK\n\n";
