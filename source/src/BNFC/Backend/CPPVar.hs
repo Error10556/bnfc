@@ -67,13 +67,24 @@ makeCppVar ::
      SharedOptions  -- ^ BNFC invokation options.
   -> CF             -- ^ The grammar description.
   -> MkFiles ()
-makeCppVar opts cf = do
+makeCppVar opts (CFG
+  { cfgPragmas        = cfPragmas
+  , cfgUsedCats       = cfUsedCats
+  , cfgLiterals       = cfLiterals
+  , cfgSymbols        = cfSymbols
+  , cfgKeywords       = cfKeywords
+  , cfgRules          = cfRules
+  }) = do
   let
-    groupedRules = CPPUtil.groupRules cf
-    CPPUtil.CPPHeaderSourcePair
-      { cppHeaderText = absynHpp
-      , cppSourceText = absynCpp
-      } = AbsynGen.makeAbsyn opts cf groupedRules
+    groupedRules       = CPPUtil.groupRules cfRules
+    mergedGroupedRules = CPPUtil.mergeCoercCats groupedRules
+    AbsynGen.GeneratedAbsyn
+      { absynCode = CPPUtil.CPPHeaderSourcePair
+        { cppHeaderText = absynHpp
+        , cppSourceText = absynCpp
+        }
+      , absynListItemsByPointer = _
+      } = AbsynGen.makeAbsyn opts cfLiterals cfPragmas mergedGroupedRules
     FlexGen.CompiledLexer
       { compiledLexer_flexGrammar = flexFile
       , compiledLexer_implicitTokenNames = implicitTokenNames

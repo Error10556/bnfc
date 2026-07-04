@@ -9,6 +9,7 @@ module BNFC.Backend.CPPVar.AbsynGen
   (
     -- * The entrypoint
     makeAbsyn
+  , GeneratedAbsyn(..)
 
     -- * File naming
   , absynHppFilename
@@ -26,8 +27,8 @@ import Data.List (intercalate, partition)
 import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>))
 
 -- BNFC imports
-import BNFC.CF
-import BNFC.Options
+import qualified BNFC.CF as CF
+import qualified BNFC.Options as Options
 import BNFC.Backend.CPPVar.CPPUtil
 
 -- | The name of the header file defining abstract syntax classes.
@@ -40,37 +41,86 @@ absynCppFilename = "Absyn.cpp"
 
 -- | Generates the abstract syntax node classes.
 makeAbsyn ::
-     SharedOptions  -- ^ BNFC invokation options.
-  -> CF             -- ^ The grammar description.
-  -> GroupedRules
-  -- ^ Rule labels in the grammar description, grouped by the grammar category.
-  -> CPPHeaderSourcePair
-makeAbsyn opts cf groupedRules = CPPHeaderSourcePair
+     Options.SharedOptions  -- ^ BNFC invokation options.
+  -> [CF.Literal]           -- ^ Used built-in tokens.
+  -> [CF.Pragma]            -- ^ User-defined pragmas (contain custom tokens).
+  -> MergedGroupedRules
+    -- ^ Rule labels in the grammar description,
+    -- grouped by the grammar category.
+  -> GeneratedAbsyn
+makeAbsyn opts literals pragmas mergedGroupedRules = GeneratedAbsyn
+  { absynCode = CPPHeaderSourcePair
     { cppHeaderText = hpp
     , cppSourceText = cpp
     }
+  , absynListItemsByPointer = {- undefined -} False
+  }
   where
     maybeNamespace = wrapPackage opts
     StructWithReflection
       { structWithReflection_struct = hppTokenStructs
       , structWithReflection_reflection = hppTokenRefl
-      } = headerTokens cf
+      } = headerTokens literals pragmas
     StructWithReflection
       { structWithReflection_struct = hppCatDefs
       , structWithReflection_reflection = hppCatRefl
-      } = headerCats groupedRules
+      } = headerCats mergedGroupedRules
     RuleCode
       { ruleCode_declaration = hppRules
       , ruleCode_reflection = hppRuleRefl
       , ruleCode_implementation = cppRules
-      } = rules cf
+      } = rules mergedGroupedRules
     hppMain = hppTokenStructs $++$ hppCatDefs $++$ hppRules
     hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppCatRefl
       $++$ hppRuleRefl
     hpp = headerHead $++$ maybeNamespace
       (hppMain $++$ wrapNamespace "reflection" hppRefl)
     cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
-      $++$ maybeNamespace (clonePtrImpl $++$ implTokens cf $++$ cppRules)
+      $++$ maybeNamespace
+        (clonePtrImpl $++$ implTokens literals pragmas $++$ cppRules)
+
+-- | Code and the decision about list item storage. Returned from 'makeAbsyn'.
+data GeneratedAbsyn = GeneratedAbsyn
+  { absynCode               :: !CPPHeaderSourcePair  -- ^ Generated code.
+  , absynListItemsByPointer :: !Bool
+    -- ^ @True@ if we generated list classes storing pointers,
+    -- @False@ if storing values directly.
+  }
+
+------------------------------------------------------------------------
+-- * Handle type completeness (with reordering and pointers).
+------------------------------------------------------------------------
+
+-- -- | Representation of a to-be-generated class declaration.
+-- -- Used in a list to specify the order of declarations.
+-- data ClassDeclaration
+--   = ListClassDeclaration   !CF.Cat
+--     -- ^ A list class (BNFC list category).
+--     -- The stored t'CF.Cat' is the list element.
+--   | NormalClassDeclaration !CF.Rule  -- ^ A normal class (BNFC label).
+--
+-- getUnorderedClassDeclarations ::
+--      MergedGroupedRules
+--   -> [ClassDeclaration]
+-- getUnorderedClassDeclarations (GroupedRules rulemap) =
+--   flip concatMap (Map.toList rulemap) $ \case
+--     (CF.ListCat elemCat, _) -> ListClassDeclaration elemCat
+--     (CF.
+--
+-- decideClassDeclarations ::
+--      CF                           -- ^ Grammar description.
+--   -> Options.ListItemStorageType  -- ^ How to store items.
+--   -> [ClassDeclaration]
+-- decideClassDeclarations cf itemType = undefined
+--
+-- tryReorderClasses :: GroupedRules -> [ClassDeclaration]
+-- tryReorderClasses cf = undefined
+--   where
+--     allDecls = getUnorderedClassDeclarations cf
+--     nDecls   = length allDecls
+--     classDeclaration2index :: Map ClassDeclaration Int
+--     classDeclaration2index = Map.fromList $ zip allDecls [0..]
+--
 
 ------------------------------------------------------------------------
 -- * Boilerplate.
@@ -248,16 +298,17 @@ tokenStructImpl name storageType =
 
 -- | Generates declarations for all tokens.
 headerTokens ::
-     CF  -- ^ The grammar description.
+     [CF.Literal]  -- ^ The built-in tokens.
+  -> [CF.Pragma]   -- ^ Contains user-defined tokens.
   -> StructWithReflection
-headerTokens cf = StructWithReflection
+headerTokens lits pragmas = StructWithReflection
   { structWithReflection_struct     = vcatSpaced structs
   , structWithReflection_reflection = vcatSpaced reflections
   }
   where
-    litTokens  = map makeLitToken (cfgLiterals cf)
+    litTokens  = map makeLitToken lits
     userTokens =
-      [makeUserToken $ wpThing name | TokenReg name _ _ <- cfgPragmas cf]
+      [makeUserToken $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
     makeLitToken s
       | s == "Char"    = tokenStructHeader s "int32_t"
       | s == "String"  = tokenStructWithRefConstructorsHeader s "std::string"
@@ -269,13 +320,14 @@ headerTokens cf = StructWithReflection
 
 -- | Generates implementations for all tokens.
 implTokens ::
-     CF  -- ^ The grammar description.
+     [CF.Literal]  -- ^ The built-in tokens.
+  -> [CF.Pragma]   -- ^ Contains user-defined tokens.
   -> Doc
-implTokens cf = vcatSpaced $ litTokens ++ userTokens
+implTokens lits pragmas = vcatSpaced $ litTokens ++ userTokens
   where
-    litTokens = map makeLitToken (cfgLiterals cf)
+    litTokens = map makeLitToken lits
     userTokens =
-      [makeUserToken $ wpThing name | TokenReg name _ _ <- cfgPragmas cf]
+      [makeUserToken $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
     makeLitToken s
       | s == "Char"    = tokenStructImpl s "int32_t"
       | s == "String"  = tokenStructWithRefConstructorsImpl s "std::string"
@@ -290,9 +342,9 @@ implTokens cf = vcatSpaced $ litTokens ++ userTokens
 
 -- | Generates declarations for all categories.
 headerCats ::
-     GroupedRules
+     MergedGroupedRules
   -> StructWithReflection
-headerCats groupedRules = StructWithReflection
+headerCats (MergedGroupedRules rulemap) = StructWithReflection
   { structWithReflection_struct     = vcatSpaced defs
   , structWithReflection_reflection = vcatSpaced refls
   }
@@ -303,22 +355,22 @@ headerCats groupedRules = StructWithReflection
       $ map toDocument (nonlists ++ lists)
     (lists, nonlists) = partition (\ (cat, _) ->
         case cat of
-          ListCat _ -> True
-          _ -> False
-      ) $ Map.toList $ mergeCoercCats $ groupedRules
-    toDocument :: (Cat, [Rule]) -> StructWithReflection
+          NontokenClass_Cat     _ -> False
+          NontokenClass_ListCat _ -> True
+      ) $ Map.toList rulemap
+    toDocument :: (NontokenClassCategory, [CF.Rule]) -> StructWithReflection
     toDocument (cat, rules) =
-      let name = catNameNoCoerc cat
+      let name = nontokenClassCatName cat
       in case cat of
-        ListCat elemCat -> StructWithReflection
+        NontokenClass_ListCat elemCat -> StructWithReflection
           { structWithReflection_struct =
               text $ "struct " ++ name ++ " : public std::deque<"
               ++ catNameNoCoerc elemCat ++ "> {};"
           , structWithReflection_reflection =
               rawCoercionSpec name 0 $+$ rawNodeNameSpec name
           }
-        _ ->
-          let ruleNames = filter (/= "_") $ map funName rules
+        NontokenClass_Cat     _       ->
+          let ruleNames = filter (/= "_") $ map CF.funName rules
           in StructWithReflection
             { structWithReflection_struct =
                 linesToText (map (("class " ++) . (++ ";")) ruleNames)
@@ -362,20 +414,16 @@ vcatRuleCode rules = RuleCode
     (decls, refls, impls) = unzipRuleCode rules
 
 -- | Generates the classes for all labels.
-rules :: CF -> RuleCode
-rules cf = vcatRuleCode
-  [ rule r
-  | r <- cfgRules cf
-  -- The below labels do not correspond to classes.
-  , not (funName r `elem` ["_", "(:)", "(:[])", "[]", "(++)"])
-  ]
+rules :: MergedGroupedRules -> RuleCode
+rules (MergedGroupedRules rulemap) = vcatRuleCode $ map rule $ concat
+  [rules | (NontokenClass_Cat _, rules) <- Map.toList rulemap]
 
 -- | Generates the declaration, properties, and implementation for a labeled
 -- BNF rule.
-rule :: Rule -> RuleCode
+rule :: CF.Rule -> RuleCode
 rule r = let
-    name = funName r
-    (indexedNames, members) = unzip $ fieldNames $ rhsRule r
+    name = CF.funName r
+    (indexedNames, members) = unzip $ fieldNames $ CF.rhsRule r
     storageTypes = map storageType' members
     constructorSignatureOrEmpty
       | null members = empty
@@ -399,7 +447,7 @@ rule r = let
           (zip storageTypes indexedNames)))
       $+$ text "};"
 
-    headerRefls = rawCoercionSpec name (precRule r) $+$ rawNodeNameSpec name
+    headerRefls = rawCoercionSpec name (CF.precRule r) $+$ rawNodeNameSpec name
 
     -- | Formats field initializers.
     ctorInitializers :: [String] -> Doc
@@ -451,13 +499,13 @@ rule r = let
     , ruleCode_implementation = impl
     }
   where
-    storageType' :: Cat -> String
+    storageType' :: CF.Cat -> String
     storageType' = \case
-      lst@(ListCat _) -> catNameNoCoerc lst
-      TokenCat s -> s
+      lst@(CF.ListCat _) -> catNameNoCoerc lst
+      CF.TokenCat s      -> s
       other -> "std::unique_ptr<" ++ catNameNoCoerc other ++ ">"
-    isPointerType' :: Cat -> Bool
+    isPointerType' :: CF.Cat -> Bool
     isPointerType' = \case
-      CoercCat _ _ -> True
-      Cat _ -> True
-      _ -> False
+      CF.CoercCat _ _ -> True
+      CF.Cat      _   -> True
+      _               -> False
