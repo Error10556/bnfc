@@ -213,14 +213,17 @@ const PrettyPrinter& operator<<(const PrettyPrinter& p, std::string_view v) {
 
 -- | Internal structure; represents instructions to print an object.
 data PrintTerm
-  = Str  !String       -- ^ A literal string to print verbatim.
-  | Nest ![PrintTerm]  -- ^ Contents are to be printed indented.
-  | Newline            -- ^ Translated to a line break.
-  | Nonterminal        -- ^ A member field.
-    { printNonterm_coercionLevel :: !Integer  -- ^ The expected precedence.
-    , printNonterm_fieldName     :: !String
-    , printNonterm_isPointer     :: !Bool     -- ^ Is this a @std::unique_ptr@?
-    }
+  = Str         !String               -- ^ A literal string to print verbatim.
+  | Nest        ![PrintTerm]          -- ^ Contents are to be printed indented.
+  | Newline                           -- ^ Translated to a line break.
+  | Nonterminal !NonterminalPrintTerm -- ^ A member field.
+
+-- | Information about a printable field.
+data NonterminalPrintTerm = NonterminalPrintTerm
+  { printNonterm_coercionLevel :: !Integer  -- ^ The expected precedence.
+  , printNonterm_fieldName     :: !String
+  , printNonterm_isPointer     :: !Bool     -- ^ Is this a @std::unique_ptr@?
+  }
 
 -- | Step 0.
 -- Generates printing instructions from a grammar rule's right-hand side.
@@ -236,7 +239,7 @@ getBasicPrintTerms sentForm = helper (map fst $ fieldNames sentForm) sentForm
           h : tail -> case h of
             Left cat ->
               let f : fs = fields
-              in Nonterminal
+              in Nonterminal (NonterminalPrintTerm
                 { printNonterm_coercionLevel = case cat of
                     CF.CoercCat _ c -> c
                     _ -> 0
@@ -245,7 +248,7 @@ getBasicPrintTerms sentForm = helper (map fst $ fieldNames sentForm) sentForm
                     CF.CoercCat _ _ -> True
                     CF.Cat      _   -> True
                     _               -> False
-                } : helper fs tail
+                }) : helper fs tail
             Right s  -> Str s : helper' tail
 
 -- | Step 1.
@@ -424,15 +427,19 @@ methodFunctionRule r = linesToText
           let (nestdoc, nestUsesPrinter) = nestedTerm2doc (lv + 1) ns
           in (text "{" $+$ nest 4 nestdoc $+$ text "}" $+$ taildoc
             , nestUsesPrinter || tailUsesPrinter)
-        Nonterminal coerc field isPointer -> (text (concat
-          [ printerDot
-          , "WithCoercionLevel("
-          , show coerc
-          , ")("
-          , if isPointer then "*v." else "v."
-          , field
-          , ");"
-          ]) $+$ taildoc, True)
+        Nonterminal (NonterminalPrintTerm
+          { printNonterm_coercionLevel = coerc
+          , printNonterm_fieldName     = field
+          , printNonterm_isPointer     = isPointer
+          }) -> (text (concat
+            [ printerDot
+            , "WithCoercionLevel("
+            , show coerc
+            , ")("
+            , if isPointer then "*v." else "v."
+            , field
+            , ");"
+            ]) $+$ taildoc, True)
         where
           (taildoc, tailUsesPrinter) = helperTerm2doc lv tail
           printerDot = printerDotAtLv lv
@@ -495,10 +502,10 @@ methodList (PrintableListDescription
           $ getBasicPrintTerms $ map Right strs
       where
         printthis = \case
-          Str s             -> "out << " ++ show s ++ ";"
-          Newline           -> "NewLine();";
-          Nest _            -> error "Somehow got nesting in list"
-          Nonterminal _ _ _ -> error "Somehow got categories in separators"
+          Str s         -> "out << " ++ show s ++ ";"
+          Newline       -> "NewLine();";
+          Nest _        -> error "Somehow got nesting in list"
+          Nonterminal _ -> error "Somehow got categories in separators"
     (lcons, mcons, rcons) = case cons of
       Nothing -> ([], [], [])
       Just (a, _, b, _, c) -> (a, b, c)
