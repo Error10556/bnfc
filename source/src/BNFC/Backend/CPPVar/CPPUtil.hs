@@ -166,7 +166,7 @@ groupRules = GroupedRules . foldr add Map.empty
         Map.insertWith (++) cat [rule]
 
 -- | Removes precedence information from the categories (keys) of
--- 'GroupedRules'. Does not change the 'BNFC.CF.Rule's (values).
+-- t'GroupedRules'. Does not change the 'BNFC.CF.Rule's (values).
 --
 -- See 'removePrecedenceFromCat'.
 mergeCoercCats :: GroupedRules -> MergedGroupedRules
