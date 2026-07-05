@@ -84,14 +84,14 @@ makeCppVar opts (CFG
         { cppHeaderText = absynHpp
         , cppSourceText = absynCpp
         }
-      , absynListItemStorage = _
+      , absynListItemStorage = listItemStorage
       } = AbsynGen.makeAbsyn opts cfLiterals cfPragmas mergedGroupedRules
     FlexGen.CompiledLexer
       { compiledLexer_flexGrammar        = flexFile
       , compiledLexer_implicitTokenNames = implicitTokenNames
       } = FlexGen.makeFlex opts cfLiterals cfTerminals cfPragmas
     bisonFile = BisonGen.makeBison
-      opts implicitTokenNames cfLiterals cfPragmas groupedRules
+      opts implicitTokenNames cfLiterals cfPragmas groupedRules listItemStorage
     printables = PrinterUtils.getPrintableSymbols
       cfLiterals cfPragmas mergedGroupedRules
     CPPUtil.CPPHeaderSourcePair

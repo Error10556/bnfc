@@ -28,6 +28,7 @@ import qualified BNFC.CF as CF
 
 import BNFC.Backend.CPPVar.CPPUtil
 import qualified BNFC.Backend.CPPVar.FlexGen as FlexGen
+import qualified BNFC.Backend.CPPVar.AbsynGen as AbsynGen
 
 -- | Returns the name of the Bison grammar file.
 bisonFilename ::
@@ -43,9 +44,10 @@ makeBison ::
   -> [CF.Literal]           -- ^ All used built-in tokens.
   -> [CF.Pragma]            -- ^ Grammar pragmas (contain user-defined tokens).
   -> GroupedRules           -- ^ Rules grouped by the category.
+  -> AbsynGen.ListItemStorage
   -> Doc
 makeBison opts implicitTokenNames literals pragmas
-    groupedRules@(GroupedRules rulemap) =
+    groupedRules@(GroupedRules rulemap) storeListItemsBy =
   bisonHeader opts
   $++$ tokenDefs implicitTokenNames literals pragmas
   $++$ codeRequires utils entrypoints
@@ -55,7 +57,7 @@ makeBison opts implicitTokenNames literals pragmas
   $++$ text "%start __start__"
   $++$ text "%%"
   $++$ startRules entrypoints
-  $++$ vcatSpaced (map (uncurry $ category implicitTokenNames)
+  $++$ vcatSpaced (map (uncurry $ category implicitTokenNames storeListItemsBy)
       $ Map.toList rulemap)
   $++$ text "%%"
   $++$ codeSection utils opts entrypoints
@@ -329,14 +331,21 @@ startRules entrypoints =
 category ::
      FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
+  -> AbsynGen.ListItemStorage
   -> NontokenCategory  -- ^ The nonterminal.
   -> [CF.Rule]         -- ^ The rules that produce the nonterminal.
   -> Doc
-category (FlexGen.NamedImplicitTokens implicitTokenNames) cat rules =
+category (FlexGen.NamedImplicitTokens implicitTokenNames)
+    storeListItemsBy cat rules =
   case cat of
-    Nontoken_ListCat _ -> text (nontokenCatNameWithCoerc cat) $+$ bisonRules
+    Nontoken_ListCat lElem -> text (nontokenCatNameWithCoerc cat) $+$ bisonRules
         [makeRule r | r <- rules, CF.internal r == CF.Parsable]
       where
+        lElemClass = catNameNoCoerc lElem
+        maybeMakeUnique = case storeListItemsBy of
+          AbsynGen.StoreByValue   -> id
+          AbsynGen.StoreByPointer -> \ s -> concat
+            ["std::make_unique<" , lElemClass , ">(" , s , ")"]
         makeRule r =
           let rhs = CF.rhsRule r
           in case CF.funName r of
@@ -346,18 +355,26 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames) cat rules =
               , sentFormToBison rhs
               , " { $$ = std::move($"
               , show dollarList
-              , "); $$.push_front(std::move($"
-              , show dollarItem
-              , ")); }"
+              , "); $$.push_front("
+              , maybeMakeUnique $ concat
+                [ "std::move($"
+                , show dollarItem
+                , ")"
+                ]
+              , "); }"
               ]
               where
                 [dollarItem, dollarList] = rhsObjectIndices rhs
             "(:[])" -> concat
               [ "/* (:[]) */ "
               , sentFormToBison rhs
-              , " { $$.push_front(std::move($"
-              , show dollarItem
-              , ")); }"
+              , " { $$.push_front("
+              , maybeMakeUnique $ concat
+                [ "std::move($"
+                , show dollarItem
+                , ")"
+                ]
+              , "); }"
               ]
               where
                 [dollarItem] = rhsObjectIndices rhs
