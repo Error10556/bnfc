@@ -100,7 +100,7 @@ data ListItemStorage
 ------------------------------------------------------------------------
 
 {- EXPLANATION
-In C++, there are 2 kinds of declarations:
+The abstract syntax file includes:
   * forward-declarations, like @class A;@;
   * full declarations, like @class A { public: int field; void method(); };@.
 
@@ -288,10 +288,10 @@ topsortClassDeclarations ::
   -> TopsortPreparedData
   -> Maybe [ClassDeclaration]
 topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
-  { topsortPreparedData_nDecls      = nDecls
-  , topsortPreparedData_origArray   = origArray
-  , topsortPreparedData_declNames   = declNames
-  , topsortPreparedData_name2index  = name2index
+  { topsortPreparedData_nDecls     = nDecls
+  , topsortPreparedData_origArray  = origArray
+  , topsortPreparedData_declNames  = declNames
+  , topsortPreparedData_name2index = name2index
   }) = let
     finalState = foldr (\ classIndex -> \case
         Nothing    -> Nothing
@@ -660,18 +660,66 @@ listDef ::
   -> CF.Cat           -- ^ Type of elements.
   -> AbsynNodeCode
 listDef storeBy elemCat = AbsynNodeCode
-  { absynNodeCode_declaration =
-      text $ "class " ++ name ++ " : public std::deque<"
-      ++ wrapStorage (catNameNoCoerc elemCat) ++ "> {};"
-  , absynNodeCode_reflection =
+  { absynNodeCode_declaration = case storeBy of
+    StoreByValue   -> text $ concat
+      ["class "
+      , name
+      , " : public std::deque<"
+      , elemName
+      , "> {};"
+      ]
+    StoreByPointer -> linesToText
+      [ concat
+        ["class "
+        , name
+        , " : public std::deque<std::unique_ptr<"
+        , catNameNoCoerc elemCat
+        , ">> {"
+        ]
+      , "public:"
+      , "    template <class... Ts>"
+      , concat
+        [ "    inline "
+        ,  name
+        ,  "(Ts&&... args) : deque(std::forward<Ts>(args)...) {}"
+        ]
+      , concat
+        [ "    "
+        ,  name
+        ,  "(const "
+        ,  name
+        ,  "& other);  /* clone */"
+        ]
+      , concat
+        [ "    "
+        ,  name
+        ,  "& operator=(const "
+        ,  name
+        ,  "& other);  /* discard & replace */"
+        ]
+      ]
+      $+$ text "};"
+  , absynNodeCode_reflection     =
       rawCoercionSpec name 0 $+$ rawNodeNameSpec name
-  , absynNodeCode_implementation = empty
+  , absynNodeCode_implementation = case storeBy of
+    StoreByValue   -> empty
+    StoreByPointer -> linesToText
+      [ "// " ++ name
+      , ""
+      , name ++ "::" ++ name ++ "(const " ++ name ++ "& other) : deque() {"
+      , "    for (auto& p : other) push_back(ClonePtr(p));"
+      , "}"
+      , ""
+      , name ++ "& " ++ name ++ "::operator=(const " ++ name ++ "& other) {"
+      , "    clear();"
+      , "    for (auto& p : other) push_back(ClonePtr(p));"
+      , "    return *this;"
+      , "}"
+      ]
   }
   where
-    wrapStorage = case storeBy of
-      StoreByValue   -> id
-      StoreByPointer -> \ s -> concat ["std::unique_ptr<", s, ">"]
-    name = "List" ++ catNameWithCoerc elemCat
+    name     = "List" ++ catNameWithCoerc elemCat
+    elemName = catNameNoCoerc elemCat
 
 variantDef ::
      String
@@ -720,7 +768,7 @@ ruleDef r = let
         , name ++ "(const " ++ name ++ "&); /* clone */"
         , name ++ "(" ++ name ++ "&&) = default;"
         , name ++ "& operator=(const " ++ name ++ "&); "
-          ++ "/* discard and replace by clone */"
+          ++ "/* discard & replace */"
         , name ++ "& operator=(" ++ name ++ "&&) = default;"
         ] $+$ constructorSignatureOrEmpty -- constructor
         -- Fields below
