@@ -25,7 +25,7 @@ import Text.PrettyPrint (($+$), Doc, empty, nest, text)
 import qualified BNFC.CF as CF
 import qualified BNFC.Options as Options
 
-import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName)
+import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName, ListItemStorage(..))
 import BNFC.Backend.CPPVar.CPPUtil
 import BNFC.Backend.CPPVar.PrinterUtils
 
@@ -49,8 +49,9 @@ syntaxPrinterCppFilename = "SyntaxPrinter.cpp"
 makeSyntaxPrinter ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> [PrintableSymbol]      -- ^ The list of types to make methods for.
+  -> ListItemStorage        -- ^ How to access list items.
   -> CPPHeaderSourcePair
-makeSyntaxPrinter opts printable = CPPHeaderSourcePair
+makeSyntaxPrinter opts printable listItemStorage = CPPHeaderSourcePair
   { cppHeaderText = hpp
   , cppSourceText = cpp
   }
@@ -63,7 +64,7 @@ makeSyntaxPrinter opts printable = CPPHeaderSourcePair
       ] $++$ packwrap (printerClassDecl printable)
     cpp = text "#include \"SyntaxPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""
-      $++$ packwrap (printerImpl printable)
+      $++$ packwrap (printerImpl listItemStorage printable)
     packwrap = wrapPackage opts
 
 -- | Generates the class declaration.
@@ -108,8 +109,11 @@ printerClassDecl symbols = linesToText
         make s = makeShiftLRaw $ concat ["const ", s, "&"]
 
 -- | Generates the implementation.
-printerImpl :: [PrintableSymbol] -> Doc
-printerImpl symbols = unlinesToText [s|
+printerImpl ::
+     ListItemStorage    -- ^ How to access list elements.
+  -> [PrintableSymbol]  -- ^ All symbols to generate methods for.
+  -> Doc
+printerImpl listItemStorage symbols = unlinesToText [s|
 SyntaxPrinter::SyntaxPrinter(const SyntaxPrinter* parent,
                              bool currentIndentIsBranch)
     : out(parent->out),
@@ -145,6 +149,9 @@ const SyntaxPrinter& operator<<(const SyntaxPrinter& p, std::string_view s) {
 }
 |]
   where
+    maybeDereference = case listItemStorage of
+      StoreByValue   -> ""
+      StoreByPointer -> "*"
     makeMethod sym = text
       ("void SyntaxPrinter::operator()(const "
         ++ printableClassName sym ++  "& v [[maybe_unused]]) const {")
@@ -161,9 +168,9 @@ const SyntaxPrinter& operator<<(const SyntaxPrinter& p, std::string_view s) {
         , "    SyntaxPrinter nonlast(this, true);"
         , "    size_t n1 = n - 1;"
         , "    for (size_t i = 0; i < n1; i++)"
-        , "        nonlast(v[i]);"
+        , "        nonlast(" ++ maybeDereference ++ "v[i]);"
         , "}"
-        , "SyntaxPrinter(this, false)(v.back());"
+        , "SyntaxPrinter(this, false)(" ++ maybeDereference ++ "v.back());"
         ]
       PrintableCustomToken name -> stringlikePrint name
       PrintableIdent            -> unlinesToText [s|

@@ -97,11 +97,11 @@ makeCppVar opts (CFG
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = syntaxHpp
       , cppSourceText = syntaxCpp
-      } = SyntaxPrinterGen.makeSyntaxPrinter opts printables
+      } = SyntaxPrinterGen.makeSyntaxPrinter opts printables listItemStorage
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = prettyHpp
       , cppSourceText = prettyCpp
-      } = PrettyPrinterGen.makePrettyPrinter opts printables
+      } = PrettyPrinterGen.makePrettyPrinter opts printables listItemStorage
   mkfile AbsynGen.absynHppFilename comment absynHpp
   mkfile AbsynGen.absynCppFilename comment absynCpp
   mkfile (FlexGen.flexFilename opts) comment flexFile

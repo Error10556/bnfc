@@ -28,7 +28,7 @@ import qualified BNFC.CF as CF
 
 import BNFC.Backend.CPPVar.CPPUtil
 import BNFC.Backend.CPPVar.PrinterUtils
-import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName)
+import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName, ListItemStorage(..))
 
 ------------------------------------------------------------------------
 -- * File naming.
@@ -50,8 +50,9 @@ prettyPrinterCppFilename = "PrettyPrinter.cpp"
 makePrettyPrinter ::
      BNFC.Options.SharedOptions  -- ^ BNFC invokation options.
   -> [PrintableSymbol]           -- ^ The list of types to make methods for.
+  -> ListItemStorage             -- ^ How to access list elements.
   -> CPPHeaderSourcePair
-makePrettyPrinter opts printable = CPPHeaderSourcePair
+makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
   { cppHeaderText = hpp
   , cppSourceText = cpp
   }
@@ -72,7 +73,7 @@ makePrettyPrinter opts printable = CPPHeaderSourcePair
 #include "PrinterCommon.hpp"
 |] $++$ packwrap
       (printerUtilImpl
-      $++$ vcatSpaced (map makeMethod printable)
+      $++$ vcatSpaced (map (makeMethod listItemStorage) printable)
       $++$ operatorShLImpl printable)
 
     packwrap = wrapPackage opts
@@ -177,10 +178,13 @@ PrettyPrinter PrettyPrinter::Dedented(unsigned int minusIndent,
 |]
 
 -- | Generates a method that prints objects of the given type.
-makeMethod :: PrintableSymbol -> Doc
-makeMethod = \case
+makeMethod ::
+     ListItemStorage  -- ^ How to access list elements.
+  -> PrintableSymbol  -- ^ What object to print.
+  -> Doc
+makeMethod listItemStorage = \case
   PrintableNormalCategory s -> methodCategory s
-  PrintableList listDesc    -> methodList listDesc
+  PrintableList listDesc    -> methodList listItemStorage listDesc
   PrintableFunctionRule r   -> methodFunctionRule r
   PrintableCustomToken t    -> methodCustomToken t
   PrintableIdent            -> methodIdent
@@ -458,8 +462,11 @@ methodCustomToken name = linesToText
   ]
 
 -- | Generates a method that prints a list category.
-methodList :: PrintableListDescription -> Doc
-methodList (PrintableListDescription
+methodList ::
+     ListItemStorage           -- ^ How to access list elements.
+  -> PrintableListDescription  -- ^ About the list.
+  -> Doc
+methodList listItemStorage (PrintableListDescription
   { printListName      = name
   , printListItemCoerc = itemcoerc
   , printListEmpty     = empty
@@ -474,10 +481,15 @@ methodList (PrintableListDescription
   , "}"
   ]
   where
+    maybeDereference = case listItemStorage of
+      StoreByValue   -> ""
+      StoreByPointer -> "*"
     body = case single of
       Nothing -> itemprinter
         $+$ text "for (const auto& item : v) {"
-        $+$ nest 4 (lcons' $+$ text "itemprinter(item);" $+$ mcons')
+        $+$ nest 4 (lcons'
+            $+$ text ("itemprinter(" ++ maybeDereference ++ "item);")
+            $+$ mcons')
         $+$ text "}" $+$ cyclercons False
       Just (lsingle, _, rsingle) -> text "if (v.empty()) {"
         $+$ nest 4 empty'
@@ -485,9 +497,13 @@ methodList (PrintableListDescription
         $+$ nest 4 (itemprinter
           $+$ text "auto last = std::prev(v.cend());"
           $+$ text "for (auto i = v.cbegin(); i != last; ++i) {"
-          $+$ nest 4 (lcons' $+$ text "itemprinter(*i);" $+$ mcons')
+          $+$ nest 4 (lcons'
+              $+$ text ("itemprinter(" ++ maybeDereference ++ "*i);")
+              $+$ mcons')
           $+$ text "}"
-          $+$ lsingle' $+$ text "itemprinter(*last);" $+$ rsingle'
+          $+$ lsingle'
+          $+$ text ("itemprinter(" ++ maybeDereference ++ "*last);")
+          $+$ rsingle'
           $+$ cyclercons True
         ) $+$ text "}"
         where
