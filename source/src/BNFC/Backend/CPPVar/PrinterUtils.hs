@@ -89,8 +89,8 @@ getPrintableSymbols cfLits cfPragmas (MergedGroupedRules rulemap) =
           : [PrintableFunctionRule r | r <- rules, CF.funName r /= "_"]
 
     -- | Consumes all strings (@Right@ values) from the start of the
-    -- t'CF.SentForm', returning them in a list.
-    -- Also returns the rest of the t'CF.SentForm'.
+    -- t'BNFC.CF.SentForm', returning them in a list.
+    -- Also returns the rest of the t'BNFC.CF.SentForm'.
     readStrings :: CF.SentForm -> ([String], CF.SentForm)
     readStrings sentForm = case sentForm of
       []             -> ([], sentForm)

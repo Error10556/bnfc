@@ -264,7 +264,7 @@ handleCurlyBraces lst =
     []               -> read
     unmatched : tail -> concat [read, [unmatched], handleCurlyBraces tail]
   where
-    -- | Reads until the first unbalanced '}'.
+    -- | Reads until the first unbalanced }.
     -- Returns (processed prefix, unprocessed suffix)
     helper :: [PrintTerm] -> ([PrintTerm], [PrintTerm])
     helper = \case

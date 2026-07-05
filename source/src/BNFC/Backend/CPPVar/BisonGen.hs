@@ -44,7 +44,7 @@ makeBison ::
   -> [CF.Literal]           -- ^ All used built-in tokens.
   -> [CF.Pragma]            -- ^ Grammar pragmas (contain user-defined tokens).
   -> GroupedRules           -- ^ Rules grouped by the category.
-  -> AbsynGen.ListItemStorage
+  -> AbsynGen.ListItemStorage  -- ^ How to access list elements.
   -> Doc
 makeBison opts implicitTokenNames literals pragmas
     groupedRules@(GroupedRules rulemap) storeListItemsBy =

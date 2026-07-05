@@ -134,8 +134,8 @@ simpleStringUTF8 :: String -> Minus.SimpleRegex Int8
 simpleStringUTF8 = Minus.string . concatMap (utf8encode . ord)
 
 -- | Encodes each character of the string with UTF-8 and makes a
--- 'Minus.SimpleRegex' over 'Int8' that matches any one of the obtained byte
--- sequences.
+-- 'BNFC.RegexMinus.SimpleRegex' over @Int8@ that matches any one of the
+-- obtained byte sequences.
 simpleCharsetUTF8 :: String -> Minus.SimpleRegex Int8
 simpleCharsetUTF8 =
   foldr Minus.Or Minus.Phi . map (Minus.string . utf8encode . ord)
@@ -384,7 +384,7 @@ utf8encode = map fromIntegral . helper
 -- * Conversions.
 ------------------------------------------------------------------------
 
--- | Converts a 'Minus.SimpleRegex' over 'Int8' into a 'FlexRegex'.
+-- | Converts a 'BNFC.RegexMinus.SimpleRegex' over @Int8@ into a 'FlexRegex'.
 -- Removes minuses from regexes. (0)
 --
 -- Simplifies the following (where @Phi@ is an empty language):
@@ -449,9 +449,9 @@ fromSimpleRegex simplereg = case Minus.removeMinuses simplereg of  -- (0)
         else elem : tail
       tail                 -> elem : tail
 
--- | Converts a canonical 'BNFC.Abs.Reg' to a 'Minus.SimpleRegex' over 'Int8'.
--- @char@ (any character, v'BNFC.Abs.RAny') is defined as any valid UTF-8
--- sequence.
+-- | Converts a canonical 'BNFC.Abs.Reg' to a 'BNFC.RegexMinus.SimpleRegex' over
+-- @Int8@. @char@ (any character, v'BNFC.Abs.RAny') is defined as any valid
+-- UTF-8 sequence.
 fromBNFCReg :: BNFC.Abs.Reg -> Minus.SimpleRegex Int8
 fromBNFCReg = Minus.toSimpleRegex
   (Minus.string . utf8encode . ord)                       -- char2regex

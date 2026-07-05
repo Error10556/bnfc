@@ -92,8 +92,8 @@ data GeneratedAbsyn = GeneratedAbsyn
 
 -- | How list classes are defined.
 data ListItemStorage
-  = StoreByValue    -- ^ @std::deque<ItemClass>@.
-  | StoreByPointer  -- ^ @std::deque<std::unique_ptr<ItemClass>>@.
+  = StoreByValue    -- ^ @std::deque@ of @ItemClass@.
+  | StoreByPointer  -- ^ @std::deque@ of @std::unique_ptr@ of @ItemClass@.
 
 ------------------------------------------------------------------------
 -- * Handling type completeness (using reordering and pointers).
@@ -168,7 +168,8 @@ Our strategy:
 data ClassDeclaration
   = ListClassDeclaration    !CF.Cat
     -- ^ A list class (BNFC list category).
-    -- The stored t'CF.Cat' is the list element, not the list category itself.
+    -- The stored t'BNFC.CF.Cat' is the list element,
+    -- not the list category itself.
   | NormalClassDeclaration  !CF.Rule  -- ^ A normal class (BNFC label).
   | VariantClassDeclaration !String ![String]
     -- ^ A @std::variant@ type synonym (BNFC category).
@@ -177,7 +178,8 @@ data ClassDeclaration
 data FullClassDeclaration
   = ListFullDeclaration    !CF.Cat
     -- ^ A list class (BNFC list category).
-    -- The stored t'CF.Cat' is the list element, not the list category itself.
+    -- The stored t'BNFC.CF.Cat' is the list element,
+    -- not the list category itself.
   | NormalFullDeclaration  !CF.Rule  -- ^ A normal class (BNFC label).
   | VariantFullDeclaration !String ![String]
     -- ^ A @std::variant@ type synonym (BNFC category).

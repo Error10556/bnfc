@@ -118,11 +118,11 @@ unlinesToText = linesToText . lines
 -- * Types & functions to use with grammar rules.
 ------------------------------------------------------------------------
 
--- | A grammar category that is not a v'CF.TokenCat'.
+-- | A grammar category that is not a v'BNFC.CF.TokenCat'.
 data NontokenCategory
-  = Nontoken_Cat      !String           -- ^ As v'CF.Cat'.
-  | Nontoken_CoercCat !String !Integer  -- ^ As v'CF.CoercCat'.
-  | Nontoken_ListCat  !CF.Cat           -- ^ As v'CF.ListCat'.
+  = Nontoken_Cat      !String           -- ^ As v'BNFC.CF.Cat'.
+  | Nontoken_CoercCat !String !Integer  -- ^ As v'BNFC.CF.CoercCat'.
+  | Nontoken_ListCat  !CF.Cat           -- ^ As v'BNFC.CF.ListCat'.
   deriving (Eq, Ord, Show)
 
 -- | Generalizes a t'NontokenCategory'.
@@ -135,10 +135,11 @@ nontoken2cat = \case
 -- | Rules grouped by the category.
 newtype GroupedRules = GroupedRules (Map NontokenCategory [CF.Rule])
 
--- | A grammar category that is neither a v'CF.TokenCat' nor a v'CF.CoercCat'.
+-- | A grammar category that is neither a v'BNFC.CF.TokenCat'
+-- nor a v'BNFC.CF.CoercCat'.
 data NontokenClassCategory
-  = NontokenClass_Cat     !String  -- ^ As v'CF.Cat'.
-  | NontokenClass_ListCat !CF.Cat  -- ^ As v'CF.ListCat'.
+  = NontokenClass_Cat     !String  -- ^ As v'BNFC.CF.Cat'.
+  | NontokenClass_ListCat !CF.Cat  -- ^ As v'BNFC.CF.ListCat'.
   deriving (Eq, Ord, Show)
 
 -- | Rules
