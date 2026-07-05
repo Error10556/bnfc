@@ -182,20 +182,23 @@ data FullClassDeclaration
   | VariantFullDeclaration !String ![String]
     -- ^ A @std::variant@ type synonym (BNFC category).
 
+-- | Generalize a t'FullClassDeclaration' without changing.
 full2justClassDecl :: FullClassDeclaration -> ClassDeclaration
 full2justClassDecl = \case
   ListFullDeclaration    cat       -> ListClassDeclaration cat
   NormalFullDeclaration  rule      -> NormalClassDeclaration rule
   VariantFullDeclaration name vars -> VariantClassDeclaration name vars
 
+-- | The main function. Produces a well-ordered list of declarations and decides
+-- between v'StoreByValue' and v'StoreByPointer' if the user allows.
 decideClassDeclarations ::
      MergedGroupedRules           -- ^ Grammar description.
   -> Options.ListItemStorageType  -- ^ User directive on how to store types.
   -> ([ClassDeclaration], ListItemStorage)
 decideClassDeclarations grammar = \case
-  Options.ItemsStoredAlwaysByValue -> tryAndFallback StoreByValue
+  Options.ItemsStoredAlwaysByValue    -> tryAndFallback StoreByValue
   Options.ItemsStoredByValueIfNoLoops -> tryAndFallback StoreByPointer
-  Options.ItemsStoredAlwaysByPointer ->
+  Options.ItemsStoredAlwaysByPointer  ->
     case topsortClassDeclarations False topsortData of
       Nothing    -> error'
       Just order -> (order, StoreByPointer)
@@ -209,14 +212,16 @@ decideClassDeclarations grammar = \case
           Just order -> (order, fallbackProducesStorageType)
     error' = error $ "Cannot reorder class declarations in " ++ absynHppFilename
 
+-- | Returns the appropriate class name for a declaration.
 nameOfFullDecl :: FullClassDeclaration -> String
 nameOfFullDecl = \case
   ListFullDeclaration elemCat   -> "List" ++ catNameWithCoerc elemCat
   NormalFullDeclaration rule    -> CF.funName rule
   VariantFullDeclaration name _ -> name
 
+-- | Extracts a set of declarations to make.
 getUnorderedClassDeclarations ::
-     MergedGroupedRules
+     MergedGroupedRules  -- ^ Grammar description.
   -> [FullClassDeclaration]
 getUnorderedClassDeclarations (MergedGroupedRules rulemap) =
   flip concatMap (Map.toList rulemap) $ \case
@@ -229,28 +234,45 @@ getUnorderedClassDeclarations (MergedGroupedRules rulemap) =
         VariantFullDeclaration catname (map fst namesAndRules)
         : map (NormalFullDeclaration . snd) namesAndRules
 
-data TopsortFullDeclarationState
-  = Undeclared
-  | ResolvingDependencies
-  | FullyDeclared
+-- The following data types and functions have "topsort" in their names. They
+-- are all internal to the ordering algorithm.
 
+-- | Has a class been fully declared?
+data TopsortFullDeclarationState
+  = Undeclared             -- ^ No.
+  | ResolvingDependencies  -- ^ Currently recursing to define dependencies.
+  | FullyDeclared          -- ^ Yes.
+
+-- | Map: class index -> Has it been (at least) forward-declared?
 type TopsortForwardDeclarationStates = IntMap Bool
 
+-- | Map: class index -> Has it been completely declared?
 type TopsortFullDeclarationStates = IntMap TopsortFullDeclarationState
 
+-- | The DFS-based topological sorting algorithm changes the following:
 data TopsortState = TopsortState
   { topsortState_fwd   :: TopsortForwardDeclarationStates
+    -- ^ What types have been forward-declared above.
   , topsortState_fulld :: TopsortFullDeclarationStates
+    -- ^ What types have been fully declared above, and which ones are currently
+    -- being recursively visited.
   , topsortState_decls :: [ClassDeclaration]
+    -- ^ The declarations above.
   }
 
+-- | Local variables needed by the algorithm that do not change.
 data TopsortPreparedData = TopsortPreparedData
-  { topsortPreparedData_nDecls     :: !Int
+  { topsortPreparedData_nDecls     :: !Int  -- ^ The number of classes.
   , topsortPreparedData_origArray  :: !(Array Int FullClassDeclaration)
+    -- ^ The (unordered) classes array to reorder.
   , topsortPreparedData_declNames  :: !(Array Int String)
+    -- ^ The class names. Used to resolve dependencies, therefore are unique.
   , topsortPreparedData_name2index :: !(Map String Int)
+    -- ^ Maps class names to indices in the original array.
   }
 
+-- | Precompute t'TopsortPreparedData'. We invoke the algorithm twice (unless
+-- --store-list-items-by=pointer is specified); this saves computations.
 prepareTopsortData :: [FullClassDeclaration] -> TopsortPreparedData
 prepareTopsortData orig = TopsortPreparedData
   { topsortPreparedData_nDecls     = nDecls
@@ -262,7 +284,7 @@ prepareTopsortData orig = TopsortPreparedData
     nDecls    = length orig
     origArray = Array.listArray (0, nDecls - 1) orig
     declNames = Array.listArray (0, nDecls - 1) $ map nameOfFullDecl orig
-    -- | We resolve classes by name hoping that class names are unique.
+    -- | We resolve classes by name, so we check that class names are unique.
     name2index :: Map String Int
     name2index
       | classNamesDuplicated = error
@@ -283,9 +305,13 @@ prepareTopsortData orig = TopsortPreparedData
                   [] -> []
                   nx : tail -> (cur, nx) : helper nx tail
 
+-- | Reorder class declarations, possibly inserting forward-declarations, so
+-- that the C++ compiler does not complain. Or report failure.
 topsortClassDeclarations ::
      Bool
+    -- ^ Does a list declaration need a __FULL__ element class declaration?
   -> TopsortPreparedData
+    -- ^ Some precomputed variables.
   -> Maybe [ClassDeclaration]
 topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
   { topsortPreparedData_nDecls     = nDecls
@@ -303,12 +329,14 @@ topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
             IntMap.fromDistinctAscList $ zip [0..nDecls - 1] $ repeat Undeclared
         , topsortState_decls = []
         }
+        -- Indices reversed because @foldr@ is
+        -- computed from right to left in this case.
       ) [nDecls - 1, nDecls - 2 .. 0]
   in case finalState of
     Nothing            -> Nothing
     Just TopsortState {topsortState_decls = decls} -> Just $ reverse decls
   where
-    -- | The dependency graph (adjacency list) : ([full], [fwd])
+    -- | The dependency graph (adjacency list): ([full deps], [fwd-deps])
     deps :: Array Int ([Int], [Int])
     deps = fmap getDeps origArray
       where
@@ -619,9 +647,11 @@ data AbsynNodeCode = AbsynNodeCode
   , absynNodeCode_implementation :: !Doc  -- ^ The method implementations.
   }
 
+-- | Generates declarations, reflection properties, and implementations
+-- for all classes: categories, list categories, and rules.
 defineAllClasses ::
-     ListItemStorage  -- ^ How to store the elements.
-  -> [ClassDeclaration]
+     ListItemStorage     -- ^ How to store list elements.
+  -> [ClassDeclaration]  -- ^ Declarations to generate.
   -> AbsynNodeCode
 defineAllClasses storeListItemsBy decls = foldr (\ decl code ->
     case decl of
@@ -680,27 +710,29 @@ listDef storeBy elemCat = AbsynNodeCode
       , "    template <class... Ts>"
       , concat
         [ "    inline "
-        ,  name
-        ,  "(Ts&&... args) : deque(std::forward<Ts>(args)...) {}"
+        , name
+        , "(Ts&&... args) : deque(std::forward<Ts>(args)...) {}"
         ]
       , concat
         [ "    "
-        ,  name
-        ,  "(const "
-        ,  name
-        ,  "& other);  /* clone */"
+        , name
+        , "(const "
+        , name
+        , "& other);  /* clone */"
         ]
       , concat
         [ "    "
-        ,  name
-        ,  "& operator=(const "
-        ,  name
-        ,  "& other);  /* discard & replace */"
+        , name
+        , "& operator=(const "
+        , name
+        , "& other);  /* discard & replace */"
         ]
       ]
       $+$ text "};"
+
   , absynNodeCode_reflection     =
       rawCoercionSpec name 0 $+$ rawNodeNameSpec name
+
   , absynNodeCode_implementation = case storeBy of
     StoreByValue   -> empty
     StoreByPointer -> linesToText
@@ -721,15 +753,16 @@ listDef storeBy elemCat = AbsynNodeCode
     name     = "List" ++ catNameWithCoerc elemCat
     elemName = catNameNoCoerc elemCat
 
+-- | Generates code for a v'VariantClassDeclaration'.
 variantDef ::
-     String
-  -> [String]
+     String    -- ^ The name of the variant class.
+  -> [String]  -- ^ The names of variants (labels).
   -> AbsynNodeCode
 variantDef name variants = AbsynNodeCode
-  { absynNodeCode_declaration = case variants of
+  { absynNodeCode_declaration    = case variants of
     [singleVariant] -> classTop $+$ singleVariantBody singleVariant
     _               -> classTop <> text "};"
-  , absynNodeCode_reflection = rawNodeNameSpec name
+  , absynNodeCode_reflection     = rawNodeNameSpec name
   , absynNodeCode_implementation = empty
   }
   where
