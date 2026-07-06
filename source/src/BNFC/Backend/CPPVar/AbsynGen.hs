@@ -519,8 +519,8 @@ tokenStructWithRefConstructorsHeader name storageType = StructWithReflection
       , name ++ "(" ++ name ++ "&&) = default;"
       , name ++ "& operator=(const " ++ name ++ "&) = default;"
       , name ++ "& operator=(" ++ name ++ "&&) = default;"
-      , name ++ "(const " ++ storageType ++ "&); /* implicit */"
-      , name ++ "(" ++ storageType ++ "&&); /* implicit */"
+      , name ++ "(const " ++ storageType ++ "&);  /* implicit */"
+      , name ++ "(" ++ storageType ++ "&&);  /* implicit */"
       , name ++ "& operator=(const " ++ storageType ++ "&);"
       , name ++ "& operator=(" ++ storageType ++ "&&);"
       ]) $+$ text "};"
@@ -571,7 +571,7 @@ tokenStructHeader name storageType = StructWithReflection
       , name ++ "(const " ++ name ++ "&) = default;"
       , name ++ "& operator=(const " ++ name ++ "&) = default;"
       , name ++ "& operator=(" ++ name ++ "&&) = default;"
-      , name ++ "(" ++ storageType ++ "); /* implicit */"
+      , name ++ "(" ++ storageType ++ ");  /* implicit */"
       , name ++ "& operator=(" ++ storageType ++ ");"
       ]) $+$ text "};"
   , structWithReflection_reflection =
@@ -693,12 +693,17 @@ listDef ::
   -> AbsynNodeCode
 listDef storeBy elemCat = AbsynNodeCode
   { absynNodeCode_declaration = case storeBy of
-    StoreByValue   -> text $ concat
-      ["class "
-      , name
-      , " : public std::deque<"
-      , elemName
-      , "> {};"
+    StoreByValue   -> linesToText
+      [ concat
+        ["class "
+        , name
+        , " : public std::deque<"
+        , elemName
+        , "> {"
+        ]
+      , "public:"
+      , "    using deque::deque;  // Support normal deque constructors"
+      , "};"
       ]
     StoreByPointer -> linesToText
       [ concat
@@ -709,12 +714,7 @@ listDef storeBy elemCat = AbsynNodeCode
         , ">> {"
         ]
       , "public:"
-      , "    template <class... Ts>"
-      , concat
-        [ "    inline "
-        , name
-        , "(Ts&&... args) : deque(std::forward<Ts>(args)...) {}"
-        ]
+      , "    using deque::deque;  // Support normal deque constructors"
       , concat
         [ "    "
         , name
@@ -800,9 +800,9 @@ ruleDef r = let
       , "public:"
       ] $+$ nest 4 (linesToText
         [ name ++ "() = default;"
-        , name ++ "(const " ++ name ++ "&); /* clone */"
+        , name ++ "(const " ++ name ++ "&);  /* clone */"
         , name ++ "(" ++ name ++ "&&) = default;"
-        , name ++ "& operator=(const " ++ name ++ "&); "
+        , name ++ "& operator=(const " ++ name ++ "&);  "
           ++ "/* discard & replace */"
         , name ++ "& operator=(" ++ name ++ "&&) = default;"
         ] $+$ constructorSignatureOrEmpty -- constructor
