@@ -977,23 +977,23 @@ translateFunction def =
     -- | Requires an expr with restored lists (see restoreLists).
     translateExpr :: CF.Exp -> Doc
     translateExpr expr = case expr of
-      CF.App funName (CF.FunT _ retType) args -> convertToVariant retType
-        $ text (funName ++ "(")
-          <> (foldr ($+$) empty $ punctuate comma $ map translateExpr args)
-          <> text ")"
+      CF.App funName (CF.FunT _ retType) args -> let
+          cppArgs = foldr ($+$) empty $ punctuate comma $ map translateExpr args
+        in callFunction retType funName cppArgs
         where
-          convertToVariant = \case
-            CF.ListT _    -> id
-            CF.BaseT name -> (text (name ++ "(") <>) . (<> text ")")
-      CF.Var name -> text $ concat
-        [ "std::move("
-        , name
-        , ")"
-        ]
-      CF.LitInt    val -> text "Integer(" <> text (show val) <> text ")"
-      CF.LitDouble val -> text "Double(" <> text (show val) <> text ")"
-      CF.LitChar   val -> text "Char(" <> text (show (ord val)) <> text ")"
-      CF.LitString val -> text "String(" <> text (show val) <> text ")"
+          callFunction = \case
+            CF.ListT _    -> callWrap
+            CF.BaseT typename -> \ fname ->
+              if isClassLabel fname
+              then callWrap typename . callWrap fname
+              else callWrap ("make_" ++ fname)
+      CF.Var      name -> callWrap "std::move" $ text   name
+      CF.LitInt    val -> callWrap "Integer"   $ text $ show   val
+      CF.LitDouble val -> callWrap "Double"    $ text $ show   val
+      CF.LitChar   val -> callWrap "Char"      $ text $ show $ ord val
+      CF.LitString val -> callWrap "String"    $ text $ show   val
+
+    callWrap fname = (text (fname ++ "(") <> ) . ( <> text ")")
 
     restoreLists :: CF.Exp -> CF.Exp
     restoreLists = \case

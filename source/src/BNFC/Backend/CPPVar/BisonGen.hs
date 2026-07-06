@@ -387,7 +387,10 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
       where
         makeRule r = case CF.funName r of
           "_"  -> coercionRule (CF.rhsRule r)
-          name -> emplacementRule name (CF.rhsRule r)
+          name ->
+            if isClassLabel name
+            then emplacementRule name (CF.rhsRule r)
+            else functionRule    name (CF.rhsRule r)
   where
     coercionRule :: CF.SentForm -> String
     coercionRule rhs = concat
@@ -407,9 +410,18 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
       , " { $$.emplace<"
       , name
       , ">("
-      , intercalate ", "
-        [ "std::move($" ++ show i ++ ")"
-        | i <- rhsObjectIndices rhs]
+      , makeArgs rhs
+      , "); }"
+      ]
+    functionRule name rhs = concat
+      [ "/* "
+      , name
+      , " */ "
+      , sentFormToBison rhs
+      , " { $$ = make_"
+      , name
+      , "("
+      , makeArgs rhs
       , "); }"
       ]
     sentFormToBison :: CF.SentForm -> String
@@ -424,6 +436,9 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
           nonempty -> nonempty
     rhsObjectIndices :: CF.SentForm -> [Int]
     rhsObjectIndices rhs = [i | (Left _, i) <- zip rhs [1..]]
+    makeArgs :: CF.SentForm -> String
+    makeArgs rhs = intercalate ", "
+      [ "std::move($" ++ show i ++ ")" | i <- rhsObjectIndices rhs]
 
 ------------------------------------------------------------------------
 -- * Implementations.
