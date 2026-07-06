@@ -357,7 +357,7 @@ topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
           ListFullDeclaration elemCat -> case elemCat of
             CF.TokenCat _ -> ([], [])
             _             ->
-              makeListDependency $ lookupName2index $ catNameWithCoerc elemCat
+              makeListDependency $ lookupName2index $ catNameNoCoerc elemCat
           NormalFullDeclaration rule ->
             foldr (\ cat res@(resFull, resFwd) -> case cat of
                 CF.TokenCat _ -> res

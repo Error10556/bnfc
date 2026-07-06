@@ -80,7 +80,8 @@ extractEntrypoints ::
   -> [CF.Cat]
     -- ^ May contain the same category with different precedence levels!
 extractEntrypoints pragmas (GroupedRules rulemap)
-  | null res  = map nontoken2cat $ Map.keys rulemap
+  | null res  = Set.toList $ Set.fromList
+    $ map (removePrecedenceFromCat . nontoken2cat) $ Map.keys rulemap
   | otherwise = res
   where
     res = Set.toList $ Set.fromList $ concat
