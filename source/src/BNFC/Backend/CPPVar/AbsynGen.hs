@@ -35,7 +35,7 @@ import Data.List (intercalate, sort)
 import qualified Data.Foldable as Foldable
 import qualified Data.Either as Either
 
-import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>), hcat, punctuate)
+import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>), punctuate, comma)
 
 -- BNFC imports
 import qualified BNFC.CF as CF
@@ -979,7 +979,7 @@ translateFunction def =
     translateExpr expr = case expr of
       CF.App funName (CF.FunT _ retType) args -> convertToVariant retType
         $ text (funName ++ "(")
-          <> (hcat $ punctuate (text ", ") $ map translateExpr args)
+          <> (foldr ($+$) empty $ punctuate comma $ map translateExpr args)
           <> text ")"
         where
           convertToVariant = \case
