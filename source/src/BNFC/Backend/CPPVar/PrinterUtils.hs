@@ -76,17 +76,18 @@ getPrintableSymbols cfLits cfPragmas (MergedGroupedRules rulemap) =
       $ flip map (Map.toList rulemap) $ \case
         (cat@(NontokenClass_ListCat itemcat), rules) -> [PrintableList
           $ PrintableListDescription
-            { printListName = nontokenClassCatName cat
+            { printListName      = nontokenClassCatName cat
             , printListItemCoerc = case itemcat of CF.CoercCat _ i -> i; _ -> 0
-            , printListEmpty = parseEmptyList <$> Map.lookup "[]" mapRules
-            , printListCons = parseCons <$> Map.lookup "(:)" mapRules
-            , printListSingle = parseSingleton <$> Map.lookup "(:[])" mapRules
+            , printListEmpty     = parseEmptyList <$> Map.lookup "[]" mapRules
+            , printListCons      = parseCons <$> Map.lookup "(:)" mapRules
+            , printListSingle    = parseSingleton
+              <$> Map.lookup "(:[])" mapRules
             }]
           where
             mapRules = Map.fromList [(CF.funName r, CF.rhsRule r) | r <- rules]
         (cat@(NontokenClass_Cat _),           rules) ->
           PrintableNormalCategory (nontokenClassCatName cat)
-          : [PrintableFunctionRule r | r <- rules, CF.funName r /= "_"]
+          : [PrintableFunctionRule r | r <- rules, isClassLabel $ CF.funName r]
 
     -- | Consumes all strings (@Right@ values) from the start of the
     -- t'BNFC.CF.SentForm', returning them in a list.
