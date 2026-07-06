@@ -22,17 +22,20 @@ module BNFC.Backend.CPPVar.AbsynGen
 
 -- Language imports
 import Prelude hiding ((<>))
+import Data.Char (ord)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.IntMap as IntMap
 import Data.IntMap (IntMap)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import qualified Data.Array as Array
 import Data.Array (Array, (!))
 import Data.List (intercalate, sort)
 import qualified Data.Foldable as Foldable
 import qualified Data.Either as Either
 
-import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>))
+import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>), hcat, punctuate)
 
 -- BNFC imports
 import qualified BNFC.CF as CF
@@ -76,13 +79,16 @@ makeAbsyn opts literals pragmas mergedGroupedRules = GeneratedAbsyn
       , absynNodeCode_reflection = hppClassRefl
       , absynNodeCode_implementation = cppRules
       } = defineAllClasses listStorage classOrder
-    hppMain = hppTokenStructs $++$ hppClassDecls
+    hppFunctions = declareFunctions pragmas
+    cppFunctions = translateFunctions pragmas
+    hppMain = hppTokenStructs $++$ hppClassDecls $++$ hppFunctions
     hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppClassRefl
     hpp = headerHead $++$ maybeNamespace
       (hppMain $++$ wrapNamespace "reflection" hppRefl)
     cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
       $++$ maybeNamespace
-        (clonePtrImpl $++$ implTokens literals pragmas $++$ cppRules)
+        (clonePtrImpl $++$ implTokens literals pragmas
+        $++$ cppRules $++$ cppFunctions)
 
 -- | Code and the decision about list item storage. Returned from 'makeAbsyn'.
 data GeneratedAbsyn = GeneratedAbsyn
@@ -107,7 +113,8 @@ The abstract syntax file includes:
 This backend generates 3 kinds of classes:
   * variants (from categories), as
       class Cat : public std::variant<L1, L2...> {};
-  * normal classes (from labels, except "_", "(:)", "(:[])", "[]"), as
+  * normal classes (from labels, except "_", "(:)", "(:[])", "[]", and
+    lower camel-case labels), as
       class Label {
       public:
         void SomeMethodsAndConstructors();
@@ -231,7 +238,7 @@ getUnorderedClassDeclarations (MergedGroupedRules rulemap) =
     (NontokenClass_Cat catname, rules) -> let
         namesAndRules =
           [ (name, rule)
-          | rule <- rules, let name = CF.funName rule, name /= "_"]
+          | rule <- rules, let name = CF.funName rule, isClassLabel name]
       in
         VariantFullDeclaration catname (map fst namesAndRules)
         : map (NormalFullDeclaration . snd) namesAndRules
@@ -692,45 +699,7 @@ listDef ::
   -> CF.Cat           -- ^ Type of elements.
   -> AbsynNodeCode
 listDef storeBy elemCat = AbsynNodeCode
-  { absynNodeCode_declaration = case storeBy of
-    StoreByValue   -> linesToText
-      [ concat
-        ["class "
-        , name
-        , " : public std::deque<"
-        , elemName
-        , "> {"
-        ]
-      , "public:"
-      , "    using deque::deque;  // Support normal deque constructors"
-      , "};"
-      ]
-    StoreByPointer -> linesToText
-      [ concat
-        ["class "
-        , name
-        , " : public std::deque<std::unique_ptr<"
-        , catNameNoCoerc elemCat
-        , ">> {"
-        ]
-      , "public:"
-      , "    using deque::deque;  // Support normal deque constructors"
-      , concat
-        [ "    "
-        , name
-        , "(const "
-        , name
-        , "& other);  /* clone */"
-        ]
-      , concat
-        [ "    "
-        , name
-        , "& operator=(const "
-        , name
-        , "& other);  /* discard & replace */"
-        ]
-      ]
-      $+$ text "};"
+  { absynNodeCode_declaration = makeListDecl
 
   , absynNodeCode_reflection     =
       rawCoercionSpec name 0 $+$ rawNodeNameSpec name
@@ -753,7 +722,67 @@ listDef storeBy elemCat = AbsynNodeCode
   }
   where
     name     = "List" ++ catNameWithCoerc elemCat
-    elemName = catNameNoCoerc elemCat
+    elemRawClass = catNameNoCoerc elemCat
+    elemType = case storeBy of
+      StoreByValue   -> elemRawClass
+      StoreByPointer -> "std::unique_ptr<" ++ elemRawClass ++ ">"
+    elemEmplaceWrap = case storeBy of
+      StoreByValue   -> id
+      StoreByPointer ->
+        (("std::make_unique<" ++ elemRawClass ++ ">(") ++ ) . ( ++ ")")
+
+    makeListDecl = linesToText
+      [ concat
+        ["class "
+        , name
+        , " : public std::deque<"
+        , elemType
+        , "> {"
+        ]
+      , "public:"
+      , "    using deque::deque;"
+      ] $+$ (case storeBy of
+        StoreByValue -> empty
+        StoreByPointer -> linesToText
+          [ concat
+            [ "    "
+            , name
+            , "(const "
+            , name
+            , "& other);  /* clone */"
+            ]
+          , concat
+            [ "    "
+            , name
+            , "& operator=(const "
+            , name
+            , "& other);  /* discard & replace */"
+            ]
+          ])
+      $+$ linesToText
+      [ "    template <class... TItems>"
+      , "    static inline " ++ name ++ " Create(TItems&&... items) {"
+      , "        " ++ name ++ " res;"
+      , concat
+        [ "        (res.emplace_back("
+        , elemEmplaceWrap "std::forward<TItems>(items)"
+        , "), ...);"
+        ]
+      , "        return res;"
+      , "    }"
+      ] $+$ (case storeBy of
+        StoreByValue   -> empty
+        StoreByPointer -> linesToText
+          [ "    template <class... TItems>"
+          , "    static inline " ++ name
+            ++ " CreateFromPointers(std::unique_ptr<TItems>&&... items) {"
+          , "        " ++ name ++ " res;"
+          , "        (res.emplace_back(std::move<std::unique_ptr<TItems>>"
+            ++ "(items)), ...);"
+          , "        return res;"
+          , "    }"
+          ])
+      $+$ text "};"
 
 -- | Generates code for a v'VariantClassDeclaration'.
 variantDef ::
@@ -763,25 +792,32 @@ variantDef ::
 variantDef name variants = AbsynNodeCode
   { absynNodeCode_declaration    = case variants of
     [singleVariant] -> classTop $+$ singleVariantBody singleVariant
-    _               -> classTop <> text "};"
+    _               -> classTop $+$ text "};"
   , absynNodeCode_reflection     = rawNodeNameSpec name
   , absynNodeCode_implementation = empty
   }
   where
-    classTop = text ("class " ++ name ++ " : public std::variant<"
-        ++ intercalate ", " variants ++ "> {")
-    singleVariantBody singleVariant = linesToText
-        [ "public:"
-        , "    inline class " ++ singleVariant ++ "& " ++ singleVariant
-          ++ "() {"
-        , "        return std::get<class " ++ singleVariant ++ ">(*this);"
-        , "    }"
-        , "    inline const class " ++ singleVariant ++ "& " ++ singleVariant
-          ++ "() const {"
-        , "        return std::get<class " ++ singleVariant ++ ">(*this);"
-        , "    }"
-        , "};"
+    classTop = linesToText
+      [ concat
+        [ "class "
+        , name
+        , " : public std::variant<"
+        , intercalate ", " variants
+        , "> {"
         ]
+      , "public:"
+      , "    using variant::variant;"
+      ]
+    singleVariantBody singleVariant = linesToText
+      [ "    inline class " ++ singleVariant ++ "& " ++ singleVariant ++ "() {"
+      , "        return std::get<class " ++ singleVariant ++ ">(*this);"
+      , "    }"
+      , "    inline const class " ++ singleVariant ++ "& " ++ singleVariant
+        ++ "() const {"
+      , "        return std::get<class " ++ singleVariant ++ ">(*this);"
+      , "    }"
+      , "};"
+      ]
 
 -- | Generates the declaration, properties, and implementation for a labeled
 -- BNF rule.
@@ -874,3 +910,180 @@ ruleDef r = let
       CF.CoercCat _ _ -> True
       CF.Cat      _   -> True
       _               -> False
+
+------------------------------------------------------------------------
+-- * User-defined functions.
+------------------------------------------------------------------------
+
+-- | Generates user function headers.
+declareFunctions ::
+     [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
+  -> Doc
+declareFunctions pragmas = text "// User-defined functions"
+  $++$ vcatSpaced [declareFunction def | CF.FunDef def <- pragmas]
+
+-- | Generates user function implementations.
+translateFunctions ::
+     [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
+  -> Doc
+translateFunctions pragmas = text "// User-defined functions"
+  $++$ vcatSpaced [translateFunction def | CF.FunDef def <- pragmas]
+
+-- | Generates the header declaration for one user-defined function.
+declareFunction ::
+     CF.Define  -- ^ The user-defined function.
+  -> Doc
+declareFunction = (<> text ";") . userFunctionSignature
+
+-- | Generates the implementation for one user-defined function.
+translateFunction ::
+     CF.Define -- ^ The user-defined function.
+  -> Doc
+translateFunction def =
+  (userFunctionSignature def <> text " {") $+$ nest 4 body $+$ text "};"
+  where
+    -- It is possible to define a function that uses one parameter several
+    -- times:
+    --   define dup arg1 = ExprPlus arg1 arg1;
+    -- Since we use move semantics in every constructor (even in functions),
+    -- we have to clone parameters manually.
+    body = linesToText
+      [ concat
+        [ doLookupParamNameType origName
+        , " "
+        , cloneName
+        , " = "
+        , origName
+        , ";"
+        ]
+      | (cloneName, origName) <- reverse reversedCloneDecls]
+      $+$ (text "return " <> translateExpr (restoreLists dBody') <> text ";")
+
+    CF.Define
+      { defArgs = dParams
+      , defBody = dBody
+      } = def
+    (_, _, dBody', reversedCloneDecls) =
+      defineClones (getUsedFuncNamesInExpr dBody)
+        (Set.fromList $ map fst dParams) dBody []
+
+    mapParamNameType :: Map String String
+    mapParamNameType = Map.fromList [(name, className t) | (name, t) <- dParams]
+    doLookupParamNameType name = case name `Map.lookup` mapParamNameType of
+      Nothing     -> error $ "Could not find parameter name " ++ name
+        ++ " in " ++ show mapParamNameType
+      Just clName -> clName
+
+    -- | Requires an expr with restored lists (see restoreLists).
+    translateExpr :: CF.Exp -> Doc
+    translateExpr expr = case expr of
+      CF.App funName (CF.FunT _ retType) args -> convertToVariant retType
+        $ text (funName ++ "(")
+          <> (hcat $ punctuate (text ", ") $ map translateExpr args)
+          <> text ")"
+        where
+          convertToVariant = \case
+            CF.ListT _    -> id
+            CF.BaseT name -> (text (name ++ "(") <>) . (<> text ")")
+      CF.Var name -> text $ concat
+        [ "std::move("
+        , name
+        , ")"
+        ]
+      CF.LitInt    val -> text "Integer(" <> text (show val) <> text ")"
+      CF.LitDouble val -> text "Double(" <> text (show val) <> text ")"
+      CF.LitChar   val -> text "Char(" <> text (show (ord val)) <> text ")"
+      CF.LitString val -> text "String(" <> text (show val) <> text ")"
+
+    restoreLists :: CF.Exp -> CF.Exp
+    restoreLists = \case
+      listExp@(CF.App _ (CF.FunT _ listType@(CF.ListT elemType)) _) ->
+        let elems = map restoreLists $ restoreOneList listExp
+        in
+          CF.App
+            (className listType ++ "::Create")
+            (CF.FunT (map (const elemType) elems) listType)
+            elems
+      CF.App funName funType args -> CF.App funName funType
+        $ map restoreLists args
+      other                       -> other
+
+    restoreOneList :: CF.Exp -> [CF.Exp]
+    restoreOneList = \case
+      CF.App "(:)" _ [argHead, argTail] -> argHead : restoreOneList argTail
+      CF.App "[]"  _ _                  -> []
+      _ -> error "Bad list representation in a user definition"
+
+    getUsedFuncNamesInExpr :: CF.Exp -> Set String
+    getUsedFuncNamesInExpr = \case
+      CF.App name _ args ->
+        Set.singleton name `Set.union`
+          Set.unions (map getUsedFuncNamesInExpr args)
+      _                  -> Set.empty
+    defineClones ::
+         Set String
+      -> Set String
+      -> CF.Exp
+      -> [(String, String)]
+      -> (Set String, Set String, CF.Exp, [(String, String)])
+    defineClones usedNames unusedParams expr decls = case expr of
+      CF.App funName funType args -> let
+          (usedNames'', unusedParams'', decls'', args'') = foldr
+            (\ arg (_usedNames, _unusedParams, _decls, res) -> let
+                (usedNames', unusedParams', arg', decls') =
+                  defineClones _usedNames _unusedParams arg _decls
+              in
+                (usedNames', unusedParams', decls', arg' : res)
+            ) (usedNames, unusedParams, decls, []) args
+        in (usedNames'', unusedParams'', CF.App funName funType args'', decls'')
+      CF.Var name ->
+        if name `Set.member` unusedParams
+        then
+          ( name `Set.insert` usedNames
+          , name `Set.delete` unusedParams
+          , expr
+          , decls
+          )
+        else
+          let (uniqName, newUsed) = getNewNameAndUpdateUsed name usedNames
+          in (newUsed, unusedParams, CF.Var uniqName, (uniqName, name) : decls)
+      _ -> (usedNames, unusedParams, expr, decls)
+    getNewNameAndUpdateUsed :: String -> Set String -> (String, Set String)
+    getNewNameAndUpdateUsed suggested used =
+      let newname = getNewName suggested used
+      in (newname, newname `Set.insert` used)
+    getNewName :: String -> Set String -> String
+    getNewName suggested used = helper 1
+      where
+        helper :: Int -> String
+        helper i
+          | name `Set.member` used = helper (i + 1)
+          | otherwise              = name
+          where
+            name = suggested ++ "_" ++ show i
+
+-- | Generates the signature (return type + name + parameters)
+-- for one user-defined function.
+userFunctionSignature ::
+     CF.Define  -- ^ The user-defined function.
+  -> Doc
+userFunctionSignature (CF.Define
+    { defName = name
+    , defArgs = params
+    , defType = retType
+    }) = text $ concat
+  [ className retType
+  , " make_"
+  , CF.wpThing name
+  , "("
+  , intercalate ", " [className t ++ "&& " ++ param | (param, t) <- params]
+  , ")"
+  ]
+
+-- | Converts a BNFC type to its C++ class name
+className ::
+     CF.Base  -- ^ BNFC expression type.
+  -> String
+className = \case
+  CF.BaseT s    -> s
+  CF.ListT elem -> "List" ++ className elem

@@ -27,6 +27,7 @@ module BNFC.Backend.CPPVar.CPPUtil
   , groupRules
   , fieldNames
   , mergeCoercCats
+  , isClassLabel
 
     -- * Category functions
   , removePrecedenceFromCat
@@ -180,6 +181,13 @@ mergeCoercCats (GroupedRules rulemap) =
       Nontoken_Cat name        -> NontokenClass_Cat name
       Nontoken_CoercCat name _ -> NontokenClass_Cat name
       Nontoken_ListCat elemCat -> NontokenClass_ListCat elemCat
+
+-- Checks if this label corresponds to a C++ class (as opposed to user-defined
+-- functions or special labels like "_").
+isClassLabel :: String -> Bool
+isClassLabel = \case
+  ""        -> False
+  first : _ -> isAsciiUpper first
 
 -- | The correct precedence removal function.
 -- Preserves precedence in list elements.
