@@ -351,9 +351,11 @@ getOrNewTerm :: Ord a =>
   -> (RegexTrees a, AnnotatedRegexNode a)
 getOrNewTerm ch = getOrNewID (RegexNodeTerm ch) (Set.singleton ch) False
 
+-- | Returns a new or existing regex matching zero or more strings that the
+-- argument matches (Kleene star).
 getOrNewStar :: Ord a =>
-     AnnotatedRegexNode a
-  -> RegexTrees a
+     AnnotatedRegexNode a  -- ^ The regex to put under a Kleene star.
+  -> RegexTrees a          -- ^ The current regex collection.
   -> (RegexTrees a, AnnotatedRegexNode a)
 getOrNewStar node =
   getOrNewID (RegexNodeStar (regexID node)) (regexStarts node) True
@@ -449,11 +451,16 @@ removeMinuses reg = convertToSimpleRegex (regexID annot) mp
   where
     (mp, annot) = makeAnnotated reg emptyRegexTrees
 
+-- | An internal record used by @'convertSub'::makeFSA@.
 data ConversionState a = ConversionState
-  { conv_trees    :: RegexTrees a
+  { conv_trees    :: RegexTrees a  -- ^ The current regex collection.
   , conv_fsa      :: FSA a
+    -- ^ The finite state automaton that is under construction.
   , conv_vertices :: Map (RegexID, RegexID) Int
+    -- ^ Translates subtractions (pairs of minuend and subtrahend)
+    -- into FSA nodes.
   , conv_tovisit  :: Set (RegexID, RegexID)
+    -- ^ Unvisited FSA nodes (to be visited).
   }
 
 -- | Converts (A-B) into an equivalent regex without subtraction (A and B do not
@@ -464,6 +471,9 @@ convertSub :: Ord a =>
   -> RegexTrees a          -- ^ The current regex collection.
   -> (RegexTrees a, AnnotatedRegexNode a)
 convertSub a b mp =
+  -- We create an FSA where state 0 represents a - b (the starting state)
+  -- and state 1 is the only accepting state. State 1 does not correspond to a
+  -- subtraction expression.
   let
     initstate = (regexID a, regexID b)
     initfsa   = fst $ fsaAddVertex $ fst $ fsaAddVertex fsaEmpty
@@ -476,8 +486,10 @@ convertSub a b mp =
         , conv_vertices = Map.singleton initstate startingvertex
         , conv_trees    = mp
         }
+    -- Eliminate all created states, leave the 2 original.
     (mp2, reducedfsa) = fullReduceFSA mp1 fullfsa
     Just starttrans = IntMap.lookup startingvertex $ fsa_transitions reducedfsa
+  -- The answer is |(0)->(0)|* |(0)->(1)|.
   in case IntMap.lookup finalvertex starttrans of
     Nothing -> getOrNewPhi mp  -- the initial mp is enough
     Just regToFinal -> case IntMap.lookup startingvertex starttrans of
@@ -560,23 +572,34 @@ convertSub a b mp =
                   )
               Just index -> (curVerts, curFsa, curToVisit, index)
 
+    -- | Reduces all new states, leaving the 2 original ones.
     fullReduceFSA mp fsa
       | IntMap.size (fsa_transitions fsa) > 2 =
         uncurry fullReduceFSA $ fsaEliminate mp fsa
       | otherwise = (mp, fsa)
 
+-- | The Finite State Automaton. Represented with an adjacency list of
+-- transitions and a (maintained manually) adjacency list of back-transitions.
 data FSA a = FSA
   { fsa_transitions :: IntMap (IntMap (AnnotatedRegexNode a))
+    -- ^ Map: vertex -> @IntMap.fromList [(destinationNode, transitionRegex)]@.
   , fsa_revEdges    :: IntMap (IntSet)
+    -- ^ Map: vertex -> the set of all vertices that have transitions to this
+    --                  vertex, __EXCLUDING__ itself.
   }
 
+-- | Creates an empty FSA.
 fsaEmpty :: FSA a
 fsaEmpty = FSA
   { fsa_transitions = IntMap.empty
   , fsa_revEdges    = IntMap.empty
   }
 
-fsaAddVertex :: FSA a -> (FSA a, Int)
+-- | Creates a new vertex with the next unoccupied index. Indices are numbered
+-- starting from 0.
+fsaAddVertex ::
+     FSA a         -- ^ The finite state automaton to modify.
+  -> (FSA a, Int)  -- ^ (The new automaton, the new vertex's index).
 fsaAddVertex FSA
   { fsa_transitions = trans
   , fsa_revEdges    = rev
@@ -587,13 +610,16 @@ fsaAddVertex FSA
   where
     n = IntMap.size trans
 
+-- | Creates a new transition with the specified regex or merges the regex with
+-- an existing transition.
 fsaAddTransition :: Ord a =>
-     Int
-  -> Int
-  -> AnnotatedRegexNode a
-  -> RegexTrees a
-  -> FSA a
+     Int                   -- ^ Transition source.
+  -> Int                   -- ^ Transition destination.
+  -> AnnotatedRegexNode a  -- ^ The transition regex.
+  -> RegexTrees a          -- ^ The current regex collection.
+  -> FSA a                 -- ^ The FSA to modify.
   -> (RegexTrees a, FSA a)
+    -- ^ (The updated regex collection, the modified automaton).
 fsaAddTransition from to how mp (FSA
   { fsa_transitions = trans
   , fsa_revEdges    = rev
@@ -615,9 +641,18 @@ fsaAddTransition from to how mp (FSA
         }
       )
 
+-- | Removes the node with the largest index (last added) from the automaton.
+-- Also erases all transitions to and from it.
 fsaPop :: Ord a =>
-     FSA a
+     FSA a  -- ^ The FSA to modify.
   -> (FSA a, Int, IntMap (AnnotatedRegexNode a), IntSet)
+    -- ^
+    -- ( The modified automaton
+    -- , the removed index
+    -- , all transitions from the removed vertex (including the one to itself)
+    -- , all vertices that used to have transitions to the vertex (excluding
+    --   itself)
+    -- ).
 fsaPop FSA
   { fsa_transitions = trans
   , fsa_revEdges    = rev
@@ -634,7 +669,17 @@ fsaPop FSA
     ((index, mytrans),    trans') = IntMap.deleteFindMax trans
     ((_,     myRevEdges), rev') = IntMap.deleteFindMax rev
 
-fsaEliminate :: Ord a => RegexTrees a -> FSA a -> (RegexTrees a, FSA a)
+-- | Eliminates the node with the largest index (last added) from the automaton,
+-- but updates other transitions to produce an equivalent FSA.
+--
+-- If the deleted node is (n), then for all nodes (u) that have transitions to
+-- (n) and for all nodes (v) that have transitions from (n), we add the
+-- transition |(u)->(n)| |(n)->(n)|* |(n)->(v)|.
+fsaEliminate :: Ord a =>
+     RegexTrees a           -- ^ The current regex collection.
+  -> FSA a                  -- ^ The FSA to modify.
+  -> (RegexTrees a, FSA a)
+    -- ^ (The updated regex collection, the reduced automaton).
 fsaEliminate mp fsa =
   foldr (\ (u, utrans, v, vtrans) (mp_, fsa_) ->
       let (mp', merged) = mergeTrans utrans vtrans mp_
