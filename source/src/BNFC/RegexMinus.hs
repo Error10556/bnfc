@@ -98,7 +98,6 @@ module BNFC.RegexMinus
     -- * 'SimpleRegex' conversions
   , toSimpleRegex
   , regexToString
-  , simplify
 
     -- * 'SimpleRegex' transformations
   , removeMinuses
@@ -500,29 +499,29 @@ convertSub a b mp =
           (mp1, lambda) = getOrNewLambda mp
           ((minuendID, subtrID), tovisit_popped) =
             Set.deleteFindMin tovisit_start
-          minuend = getByID minuendID mp
-          subtr = getByID subtrID mp
+          minuend = getByID minuendID mp1
+          subtr = getByID subtrID mp1
           Just thisvertex = Map.lookup (minuendID, subtrID) vertices
-          uniqLeftStarts = regexStarts a `Set.difference` regexStarts b
-          sharedStarts = regexStarts a `Set.intersection` regexStarts b
+          uniqLeftStarts = regexStarts minuend
+            `Set.difference` regexStarts subtr
+          sharedStarts = regexStarts minuend
+            `Set.intersection` regexStarts subtr
           resDelta = regexContainsEmpty minuend
             && not (regexContainsEmpty subtr)
           baseResList = if resDelta then [lambda] else []
 
-          -- derive over terms not subtracted from 'a'
-          (mp2, immediateResList) = foldr (\ startch (mp, reslist) -> let
-              (mp', deriv) = derive startch a mp
+          -- derive over terms not subtracted from 'minuend'
+          (mp2, immediateResList) = foldr (\ startch (mp_, reslist) -> let
+              (mp', deriv) = derive startch minuend mp_
               (mp'', term) = getOrNewTerm startch mp'
               (mp''', seq) = getOrNewSeq term deriv mp''
             in (mp''', seq : reslist)) (mp1, baseResList) uniqLeftStarts
 
           -- add transition to final state if needed
           (mp3, fsa1) = case immediateResList of
-            []       -> (mp2, fsa)
-            nonempty -> let
-              (mp', trans) = foldr
-                (\ annot (mp_, trans_) -> getOrNewSeq annot trans_ mp_)
-                (mp2, lambda) nonempty
+            [] -> (mp2, fsa)
+            _  ->
+              let (mp', trans) = getOrNewOr immediateResList mp2
               in fsaAddTransition thisvertex finalvertex trans mp' fsa
 
           -- derive over terms that are subtracted
@@ -624,16 +623,16 @@ fsaPop FSA
   , fsa_revEdges    = rev
   } =
   ( FSA
-    { fsa_transitions = IntMap.map (IntMap.delete index) trans
-    , fsa_revEdges    = IntMap.map (IntSet.delete index) rev
+    { fsa_transitions = IntMap.map (IntMap.delete index) trans'
+    , fsa_revEdges    = IntMap.map (IntSet.delete index) rev'
     }
   , index
   , mytrans
   , myRevEdges
   )
   where
-    ((index, mytrans),    _) = IntMap.deleteFindMax trans
-    ((_,     myRevEdges), _) = IntMap.deleteFindMax rev
+    ((index, mytrans),    trans') = IntMap.deleteFindMax trans
+    ((_,     myRevEdges), rev') = IntMap.deleteFindMax rev
 
 fsaEliminate :: Ord a => RegexTrees a -> FSA a -> (RegexTrees a, FSA a)
 fsaEliminate mp fsa =
@@ -681,11 +680,6 @@ convertToSimpleRegex regID mp = case node of
   where
     reg  = getByID regID mp
     node = regexNode reg
-
-simplify :: Ord a => SimpleRegex a -> SimpleRegex a
-simplify reg =
-  let (mp, annot) = makeAnnotated reg emptyRegexTrees
-  in convertToSimpleRegex (regexID annot) mp
 
 -- | Visualizes the regex, showing the empty string as () and the empty language
 -- as []. Uses parentheses to resolve precedence.
