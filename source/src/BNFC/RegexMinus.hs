@@ -13,6 +13,7 @@
     - <http://home.chello.no/~mgrsby/sgmlintr/file0003.htm>
     - <http://home.chello.no/~mgrsby/sgmlintr/file0004.htm>
     - <http://home.chello.no/~mgrsby/sgmlintr/file0005.htm>
+    - <https://arxiv.org/pdf/1502.03573>
 
   (accessible via the Wayback Machine).
 
@@ -38,32 +39,53 @@
   - φ-R = φ;
   - Dc(R-S)=DcR-DcS.
 
-  The first observation: if R contains strings that start with
+  The main observation: if R contains strings that start with
   @a@, @b@, ..., @z@, then
 
                      R = a(DaR)|b(DbR)|...|z(DzR)|δR.
 
-  The second observation: for some regex A that does not match the empty string
-  (i.e. δA=φ),
+  Our strategy is to derive the subtraction until we arrive at a new subtraction
+  that we have seen before, or eliminate the subtrahend.
 
-                   R = AR|B  if and only if  R = (A*)B.
+  We obtain an FSA with states representing different subtractions and
+  transitions being the characters we derive on. We add a fictitious final state
+  and add transitions to it:
+  - from all nullable states (where δR=λ) - a spontaneous transition λ;
+  - from all states where a derivation on a character "c" eliminates the
+    subtraction (Dc(R-S) = T) - a transition "cT".
 
-  Our strategy is to derive the subtraction until we arrive at the same
-  subtraction as a subexpression, and then apply the second observation.
+  The obtained FSA is converted to a regex using state elimination
+  (<https://arxiv.org/pdf/1502.03573>, section 3.2).
 
-  Let's consider an example: we have to convert (a|b)*-a* to an equivalent
+  Let's consider an example: we have to convert (ab|ac)*-(ac)* to an equivalent
   regex without the subtraction operator.
 
-  R = (a|b)*-a* = a((a|b)*-a)|b((a|b)*-φ) = aR|b(a|b)* = a*b(a|b)*.
+  We name the initial state (R).
 
-  The derivation might take several steps and/or require grouping several
-  sequences of characters, which is taken into account in this implementation:
+  > Da(R)  = (b|c)(ab|ac)* - c(ac)* = (new state S1)
+  > Db(S1) = (ab|ac)*  (subtraction eliminated)
+  > Dc(S1) = (ab|ac)* - (ac)* = (loop to R)
 
-  R = (ab|ac)*-(ac)* = a((b|c)(ab|ac)*-c(ac)*)
-    = a(b((ab|ac)*-φ)|c((ab|ac)*-(ac)*)) = ab(ab|ac)*|acR = (ac)*ab(ab|ac)*.
+  Since δR=δS1=φ, we have no spontaneous transitions to the final state.
+  The FSA:
+
+     (---) ----a----> (----)                  (-----)
+  -->( R )            ( S1 ) ---b(ab|ac)*---> ( Fin )
+     (___) <----c---- (____)                  (_____)
+
+  We eliminate S1 by adding an R->R transition "aφ*c" = "ac" and an R->Fin
+  transition "aφ*b(ab|ac)*" = "ab(ab|ac)*":
+
+  -->(---) ---ab(ab|ac)*-->(-----)
+     ( R )                 ( Fin )
+   +-(___)<-+              (_____)
+   |        |
+   +---ac --+
+
+  We eliminate R and obtain (ac)*ab(ab|ac)*.
 
   This implementation assigns a unique ID to every regex and uses the IDs to
-  detect "loops".
+  compare states.
 -}
 
 module BNFC.RegexMinus
@@ -76,6 +98,7 @@ module BNFC.RegexMinus
     -- * 'SimpleRegex' conversions
   , toSimpleRegex
   , regexToString
+  , simplify
 
     -- * 'SimpleRegex' transformations
   , removeMinuses
@@ -415,6 +438,12 @@ derive ch reg mp = case regNode of
   where
     regNode = regexNode reg
 
+-- | Produces an equivalent regex without any v'Sub's
+removeMinuses :: Ord a => SimpleRegex a -> SimpleRegex a
+removeMinuses reg = convertToSimpleRegex (regexID annot) mp
+  where
+    (mp, annot) = makeAnnotated reg emptyRegexTrees
+
 -- | Converts (A-B) into an equivalent regex without subtraction (A and B do not
 -- contain subtraction already).
 convertSub :: Ord a =>
@@ -516,6 +545,80 @@ convertSub a b mp = (\ (mp, conv, _) -> (mp, conv)) $ helper a b mp 0 Map.empty
                 (regexStarts preLoop) True mp
           in getOrNewSeq preLoopStar alt mp1
 
+data FSA a = FSA
+  { fsa_transitions :: IntMap (IntMap (SimpleRegex a))
+  , fsa_revEdges    :: IntMap (IntSet)
+  }
+
+fsaEmpty :: Ord a => FSA a
+fsaEmpty = FSA
+  { fsa_transitions = IntMap.empty
+  , fsa_revEdges    = IntMap.empty
+  }
+
+fsaAddVertex :: Ord a => FSA a -> (FSA a, Int)
+fsaAddVertex FSA
+  { fsa_transitions = trans
+  , fsa_revEdges    = rev
+  } = (FSA
+    { fsa_transitions = IntMap.insert n IntMap.empty trans
+    , fsa_revEdges    = IntMap.insert n IntSet.empty rev
+    }, n)
+  where
+    n = IntMap.size trans
+
+fsaAddTransition :: Ord a => Int -> Int -> SimpleRegex a -> FSA a -> FSA a
+fsaAddTransition from to how (FSA
+  { fsa_transitions = trans
+  , fsa_revEdges    = rev
+  }) = FSA
+  { fsa_transitions =
+      IntMap.update (Just . IntMap.insertWith Or to how) from trans
+  , fsa_revEdges =
+      if from /= to
+      then IntMap.update (Just . IntSet.insert from) to rev
+      else rev
+  }
+
+fsaPop :: Ord a
+  => FSA a
+  -> (FSA a, Int, IntMap (SimpleRegex a), IntSet)
+fsaPop FSA
+  { fsa_transitions = trans
+  , fsa_revEdges    = rev
+  } =
+  ( FSA
+    { fsa_transitions = IntMap.map (IntMap.delete index) trans
+    , fsa_revEdges    = IntMap.map (IntSet.delete index) rev
+    }
+  , index
+  , mytrans
+  , myRevEdges
+  )
+  where
+    ((index, mytrans),    _) = IntMap.deleteFindMax trans
+    ((_,     myRevEdges), _) = IntMap.deleteFindMax rev
+
+fsaEliminate :: Ord a => FSA a -> FSA a
+fsaEliminate fsa =
+  foldr (\ (u, utrans, v, vtrans) ->
+      fsaAddTransition u v $ utrans `mergeTrans` vtrans)
+    fsaPopped
+    [ let
+        Just fromU  = IntMap.lookup u (fsa_transitions fsa)
+        Just utrans = IntMap.lookup index fromU
+      in (u, utrans, v, vtrans)
+    | u <- IntSet.toList myrev, (v, vtrans) <- IntMap.toList transToOthers
+    ]
+  where
+    (fsaPopped, index, mytrans, myrev) = fsaPop fsa
+    (transToOthers, mergeTrans) = case index `IntMap.lookup` mytrans of
+      Nothing -> (mytrans, Seq)
+      Just r  ->
+        ( IntMap.delete index mytrans
+        , (\ from to -> from `Seq` (Rep r `Seq` to))
+        )
+
 -- | Converts an internal 'RegexNode' (represented with a t'RegexID')
 -- into a 'SimpleRegex'.
 convertToSimpleRegex :: Ord a =>
@@ -538,11 +641,10 @@ convertToSimpleRegex regID mp = case node of
     reg  = getByID regID mp
     node = regexNode reg
 
--- | Produces an equivalent regex without any v'Sub's
-removeMinuses :: Ord a => SimpleRegex a -> SimpleRegex a
-removeMinuses reg = convertToSimpleRegex (regexID annot) mp
-  where
-    (mp, annot) = makeAnnotated reg emptyRegexTrees
+simplify :: Ord a => SimpleRegex a -> SimpleRegex a
+simplify reg =
+  let (mp, annot) = makeAnnotated reg emptyRegexTrees
+  in convertToSimpleRegex (regexID annot) mp
 
 -- | Visualizes the regex, showing the empty string as () and the empty language
 -- as []. Uses parentheses to resolve precedence.
