@@ -754,9 +754,23 @@ listDef storeBy elemCat = AbsynNodeCode
           , concat
             [ "    "
             , name
+            , "("
+            , name
+            , "&& other) = default;"
+            ]
+          , concat
+            [ "    "
+            , name
             , "& operator=(const "
             , name
             , "& other);  /* discard & replace */"
+            ]
+          , concat
+            [ "    "
+            , name
+            , "& operator=("
+            , name
+            , "&& other) = default;"
             ]
           ])
       $+$ linesToText
