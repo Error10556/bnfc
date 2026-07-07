@@ -352,6 +352,13 @@ getOrNewTerm :: Ord a =>
   -> (RegexTrees a, AnnotatedRegexNode a)
 getOrNewTerm ch = getOrNewID (RegexNodeTerm ch) (Set.singleton ch) False
 
+getOrNewStar :: Ord a =>
+     AnnotatedRegexNode a
+  -> RegexTrees a
+  -> (RegexTrees a, AnnotatedRegexNode a)
+getOrNewStar node =
+  getOrNewID (RegexNodeStar (regexID node)) (regexStarts node) True
+
 -- | Converts the simple regex into an internal representation with precomputed
 -- starts and nullability.
 -- Converts away subtractions.
@@ -364,8 +371,7 @@ makeAnnotated reg mp = case reg of
   Term a -> getOrNewTerm a mp
   Lambda -> getOrNewLambda mp
   Phi    -> getOrNewPhi mp
-  Rep r  -> let (newmp, rann) = makeAnnotated r mp in
-    getOrNewID (RegexNodeStar (regexID rann)) (regexStarts rann) True newmp
+  Rep r  -> let (newmp, rann) = makeAnnotated r mp in getOrNewStar rann newmp
   Or a b -> let
       rs = flattenOr a ++ flattenOr b
       (newmp, anns) =
@@ -444,6 +450,13 @@ removeMinuses reg = convertToSimpleRegex (regexID annot) mp
   where
     (mp, annot) = makeAnnotated reg emptyRegexTrees
 
+data ConversionState a = ConversionState
+  { conv_trees    :: RegexTrees a
+  , conv_fsa      :: FSA a
+  , conv_vertices :: Map (RegexID, RegexID) Int
+  , conv_tovisit  :: Set (RegexID, RegexID)
+  }
+
 -- | Converts (A-B) into an equivalent regex without subtraction (A and B do not
 -- contain subtraction already).
 convertSub :: Ord a =>
@@ -451,112 +464,120 @@ convertSub :: Ord a =>
   -> AnnotatedRegexNode a  -- ^ The subtrahend.
   -> RegexTrees a          -- ^ The current regex collection.
   -> (RegexTrees a, AnnotatedRegexNode a)
-convertSub a b mp = (\ (mp, conv, _) -> (mp, conv)) $ helper a b mp 0 Map.empty
+convertSub a b mp =
+  let
+    initstate = (regexID a, regexID b)
+    initfsa   = fst $ fsaAddVertex $ fst $ fsaAddVertex fsaEmpty
+    ConversionState
+      { conv_fsa   = fullfsa
+      , conv_trees = mp1
+      } = makeFSA ConversionState
+        { conv_fsa      = initfsa
+        , conv_tovisit  = Set.singleton initstate
+        , conv_vertices = Map.singleton initstate startingvertex
+        , conv_trees    = mp
+        }
+    (mp2, reducedfsa) = fullReduceFSA mp1 fullfsa
+    Just starttrans = IntMap.lookup startingvertex $ fsa_transitions reducedfsa
+  in case IntMap.lookup finalvertex starttrans of
+    Nothing -> getOrNewPhi mp  -- the initial mp is enough
+    Just regToFinal -> case IntMap.lookup startingvertex starttrans of
+      Nothing  -> (mp2, regToFinal)
+      Just reg ->
+        let (mp3, repeatstart) = getOrNewStar reg mp2
+        in getOrNewSeq repeatstart regToFinal mp3
   where
-    -- | returns:
-    -- ( the updated map
-    -- , the regex of all paths successfully converted
-    -- , references to subtractions that reoccurred as their subexpressions
-    --   (with the corresponding derivation sequences))
-    helper :: Ord a =>
-         AnnotatedRegexNode a  -- ^ The minuend.
-      -> AnnotatedRegexNode a  -- ^ The subtrahend.
-      -> RegexTrees a          -- ^ The current regex collection.
-      -> Int
-        -- ^ The current depth of recursion (= derivation count).
-      -> Map (RegexID, RegexID) Int
-        -- ^ The previous subtractions and their depths of recursion.
-      -> ( RegexTrees a
-         , AnnotatedRegexNode a
-         , IntMap (AnnotatedRegexNode a))
+    startingvertex = 0 :: Int
+    finalvertex    = 1 :: Int
+    makeFSA convstate_start@ConversionState
+        { conv_trees    = mp
+        , conv_fsa      = fsa
+        , conv_vertices = vertices
+        , conv_tovisit  = tovisit_start
+        }
+      | Set.null tovisit_start = convstate_start
+      | otherwise = let
+          (mp1, lambda) = getOrNewLambda mp
+          ((minuendID, subtrID), tovisit_popped) =
+            Set.deleteFindMin tovisit_start
+          minuend = getByID minuendID mp
+          subtr = getByID subtrID mp
+          Just thisvertex = Map.lookup (minuendID, subtrID) vertices
+          uniqLeftStarts = regexStarts a `Set.difference` regexStarts b
+          sharedStarts = regexStarts a `Set.intersection` regexStarts b
+          resDelta = regexContainsEmpty minuend
+            && not (regexContainsEmpty subtr)
+          baseResList = if resDelta then [lambda] else []
 
-    -- We derive 'a' and 'b' over each starting term of 'a' and 'b'.
-    -- For each starting char 'startch':
-    --   If only 'b' can start with 'startch', then 'startch' does not start the
-    --     result.
-    --   Else if only 'a' can start with 'startch', then this branch does not
-    --     need subtraction. Add (startch)(derive startch 'a') to the result.
-    --   Else if both 'a' and 'b' can start with 'startch':
-    --     Da := derive startch a; Db := derive startch b
-    --     -- note that a-b `contains` (startch)(Da - Db)
-    --     (converted, looped) := Evaluate Da - Db
-    --     Add to results: converted, looped
-    --
-    --   If we have not looped to this iteration:
-    --     return (converted, looped)
-    --   Else
-    --     -- note that R=xR+y <=> R=x*y, where 'x' is a sequence of terms we
-    --     -- derive over recursively
-    --     return ((sequenceUpToLoop)* converted, looped - thisloop)
-    helper a b mp depth prevStates =
-      let (mp1, lambda) = getOrNewLambda mp
-      in case currentState `Map.lookup` prevStates of
-        Just prevdepth ->
-          let (mp2, phi) = getOrNewPhi mp1
-          in (mp2, phi, IntMap.singleton prevdepth lambda)
-        Nothing -> let
-            uniqLeftStarts = regexStarts a `Set.difference` regexStarts b
-            sharedStarts = regexStarts a `Set.intersection` regexStarts b
-            baseResList = if resDelta then [lambda] else []
-            -- derive over terms not subtracted from 'a'
-            (mp2, nonloopResList) = foldr (\ startch (mp, reslist) -> let
-                (mp', deriv) = derive startch a mp
-                (mp'', term) = getOrNewTerm startch mp'
-                (mp''', res) = getOrNewSeq term deriv mp''
-              in (mp''', res : reslist)) (mp1, baseResList) uniqLeftStarts
-            -- derive over terms that are subtracted, accumulate loops
-            (mp3, resList, looped) = foldr
-              (\ startch (mp, reslist, loopedMap) -> let
-                  (mpI, derivA) = derive startch a mp
-                  (mpII, derivB) = derive startch b mpI
-                  (mpIII, recConverted, recLooped) = helper derivA derivB mpII
-                    (depth + 1) (Map.insert currentState depth prevStates)
-                  (mpIV, term) = getOrNewTerm startch mpIII
-                  (mpV, resConverted) = getOrNewSeq term recConverted mpIV
-                  (mpVI, loopedMap') = foldr
-                    (\ (startDepth, reg) (mp, looped) ->
-                      let (mp', reg') = getOrNewSeq term reg mp
-                      in (mp', IntMap.insertWith (++)
-                        startDepth [reg'] looped))
-                    (mpV, loopedMap) $ IntMap.toList recLooped
-                in (mpVI, resConverted : reslist, loopedMap'))
-              (mp2, nonloopResList, IntMap.empty) sharedStarts
-            -- merge loop sequences into 'RegexNodeOr's
-            (mp4, mergedLoops) = foldr (\ (startDepth, alts) (mp, tail) ->
-                let (mp', merged) = getOrNewOr alts mp
-                in (mp', (startDepth, merged) : tail))
-              (mp3, []) $ IntMap.toAscList looped
-            mergedLoopsMap = IntMap.fromDistinctAscList mergedLoops
-            -- converted regex
-            (mp5, resOr) = getOrNewOr resList mp4
-            myLoop = depth `IntMap.lookup` mergedLoopsMap
-          in case myLoop of
-            Nothing -> (mp5, resOr, mergedLoopsMap)
-            Just preLoopSeq ->
-              let (mp6, resSol) = equationSolutionRule preLoopSeq resOr mp5
-              in (mp6, resSol, IntMap.deleteMax mergedLoopsMap)
-      where
-        currentState = (regexID a, regexID b)
-        resDelta = regexContainsEmpty a && not (regexContainsEmpty b)
-        -- | if not (containsEmpty preLoop), then
-        -- R = (preLoop)R|(alt) iff R = (preLoop)*(alt)
-        equationSolutionRule preLoop alt mp =
-          let (mp1, preLoopStar) = getOrNewID (RegexNodeStar $ regexID preLoop)
-                (regexStarts preLoop) True mp
-          in getOrNewSeq preLoopStar alt mp1
+          -- derive over terms not subtracted from 'a'
+          (mp2, immediateResList) = foldr (\ startch (mp, reslist) -> let
+              (mp', deriv) = derive startch a mp
+              (mp'', term) = getOrNewTerm startch mp'
+              (mp''', seq) = getOrNewSeq term deriv mp''
+            in (mp''', seq : reslist)) (mp1, baseResList) uniqLeftStarts
+
+          -- add transition to final state if needed
+          (mp3, fsa1) = case immediateResList of
+            []       -> (mp2, fsa)
+            nonempty -> let
+              (mp', trans) = foldr
+                (\ annot (mp_, trans_) -> getOrNewSeq annot trans_ mp_)
+                (mp2, lambda) nonempty
+              in fsaAddTransition thisvertex finalvertex trans mp' fsa
+
+          -- derive over terms that are subtracted
+        in makeFSA $ foldr (\ startch state_ ->
+            let
+              (mp', derivMinuend) = derive startch minuend $ conv_trees state_
+              (mp'', derivSubtr) = derive startch subtr mp'
+              newstate = (regexID derivMinuend, regexID derivSubtr)
+              (verts', fsa', tovisit', destIndex) = destination newstate
+                  (conv_vertices state_) (conv_fsa state_) (conv_tovisit state_)
+              (mp''', term) = getOrNewTerm startch mp''
+              (mp'''', fsa'') =
+                fsaAddTransition thisvertex destIndex term mp''' fsa'
+            in ConversionState
+              { conv_vertices = verts'
+              , conv_trees    = mp''''
+              , conv_fsa      = fsa''
+              , conv_tovisit  = tovisit'
+              }
+          ) ConversionState
+          { conv_trees    = mp3
+          , conv_fsa      = fsa1
+          , conv_vertices = vertices
+          , conv_tovisit  = tovisit_popped
+          } sharedStarts
+        where
+          destination newstate curVerts curFsa curToVisit =
+            case Map.lookup newstate curVerts of
+              Nothing -> let
+                  (fsa', index) = fsaAddVertex curFsa
+                in
+                  ( Map.insert newstate index curVerts
+                  , fsa'
+                  , Set.insert newstate curToVisit
+                  , index
+                  )
+              Just index -> (curVerts, curFsa, curToVisit, index)
+
+    fullReduceFSA mp fsa
+      | IntMap.size (fsa_transitions fsa) > 2 =
+        uncurry fullReduceFSA $ fsaEliminate mp fsa
+      | otherwise = (mp, fsa)
 
 data FSA a = FSA
-  { fsa_transitions :: IntMap (IntMap (SimpleRegex a))
+  { fsa_transitions :: IntMap (IntMap (AnnotatedRegexNode a))
   , fsa_revEdges    :: IntMap (IntSet)
   }
 
-fsaEmpty :: Ord a => FSA a
+fsaEmpty :: FSA a
 fsaEmpty = FSA
   { fsa_transitions = IntMap.empty
   , fsa_revEdges    = IntMap.empty
   }
 
-fsaAddVertex :: Ord a => FSA a -> (FSA a, Int)
+fsaAddVertex :: FSA a -> (FSA a, Int)
 fsaAddVertex FSA
   { fsa_transitions = trans
   , fsa_revEdges    = rev
@@ -567,22 +588,37 @@ fsaAddVertex FSA
   where
     n = IntMap.size trans
 
-fsaAddTransition :: Ord a => Int -> Int -> SimpleRegex a -> FSA a -> FSA a
-fsaAddTransition from to how (FSA
+fsaAddTransition :: Ord a =>
+     Int
+  -> Int
+  -> AnnotatedRegexNode a
+  -> RegexTrees a
+  -> FSA a
+  -> (RegexTrees a, FSA a)
+fsaAddTransition from to how mp (FSA
   { fsa_transitions = trans
   , fsa_revEdges    = rev
-  }) = FSA
-  { fsa_transitions =
-      IntMap.update (Just . IntMap.insertWith Or to how) from trans
-  , fsa_revEdges =
-      if from /= to
-      then IntMap.update (Just . IntSet.insert from) to rev
-      else rev
-  }
+  }) = let
+    Just transFrom = IntMap.lookup from trans
+    (mp', trans') = case IntMap.lookup to transFrom of
+      Nothing -> (mp, IntMap.update (Just . IntMap.insert to how) from trans)
+      Just prevEdge ->
+        let (mp1, mergedEdge) = getOrNewOr [prevEdge, how] mp
+        in (mp1, IntMap.update (Just . IntMap.insert to mergedEdge) from trans)
+    in
+      ( mp'
+      , FSA
+        { fsa_transitions = trans'
+        , fsa_revEdges =
+            if from /= to
+            then IntMap.update (Just . IntSet.insert from) to rev
+            else rev
+        }
+      )
 
-fsaPop :: Ord a
-  => FSA a
-  -> (FSA a, Int, IntMap (SimpleRegex a), IntSet)
+fsaPop :: Ord a =>
+     FSA a
+  -> (FSA a, Int, IntMap (AnnotatedRegexNode a), IntSet)
 fsaPop FSA
   { fsa_transitions = trans
   , fsa_revEdges    = rev
@@ -599,11 +635,12 @@ fsaPop FSA
     ((index, mytrans),    _) = IntMap.deleteFindMax trans
     ((_,     myRevEdges), _) = IntMap.deleteFindMax rev
 
-fsaEliminate :: Ord a => FSA a -> FSA a
-fsaEliminate fsa =
-  foldr (\ (u, utrans, v, vtrans) ->
-      fsaAddTransition u v $ utrans `mergeTrans` vtrans)
-    fsaPopped
+fsaEliminate :: Ord a => RegexTrees a -> FSA a -> (RegexTrees a, FSA a)
+fsaEliminate mp fsa =
+  foldr (\ (u, utrans, v, vtrans) (mp_, fsa_) ->
+      let (mp', merged) = mergeTrans utrans vtrans mp_
+      in fsaAddTransition u v merged mp' fsa_)
+    (mp, fsaPopped)
     [ let
         Just fromU  = IntMap.lookup u (fsa_transitions fsa)
         Just utrans = IntMap.lookup index fromU
@@ -613,10 +650,14 @@ fsaEliminate fsa =
   where
     (fsaPopped, index, mytrans, myrev) = fsaPop fsa
     (transToOthers, mergeTrans) = case index `IntMap.lookup` mytrans of
-      Nothing -> (mytrans, Seq)
+      Nothing -> (mytrans, getOrNewSeq)
       Just r  ->
         ( IntMap.delete index mytrans
-        , (\ from to -> from `Seq` (Rep r `Seq` to))
+        , (\ from to mp ->
+          let
+            (mp', star)  = getOrNewStar r mp
+            (mp'', seqr) = getOrNewSeq star to mp'
+          in getOrNewSeq from seqr mp'')
         )
 
 -- | Converts an internal 'RegexNode' (represented with a t'RegexID')
