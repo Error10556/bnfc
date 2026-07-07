@@ -327,3 +327,28 @@ spec = do
     test "cb" False
     test "acb" False
     test "ab" False
+
+  describe "(a|b|c)* - (a|b|c)*ab(a|b|c)*" $ do
+    let
+      abcs = Rep $ charset "abc"
+      exp = removeMinuses
+        $ abcs `Sub` foldr Seq Lambda [abcs, string "ab", abcs]
+      test = testcase (matchFull exp)
+    test "" True
+    test "abc" False
+    test "a" True
+    test "b" True
+    test "c" True
+    test "ab" False
+    test "ac" True
+    test "bc" True
+    test "ba" True
+    test "ca" True
+    test "cb" True
+    test "aa" True
+    test "bb" True
+    test "cc" True
+    test "aaa" True
+    test "bbb" True
+    test "ccc" True
+    test "aacaaa" True
