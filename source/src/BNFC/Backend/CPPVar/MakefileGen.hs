@@ -69,7 +69,8 @@ variables ::
      String  -- ^ Language name.
   -> Doc
 variables langname = linesToText
-  [ "CXXFLAGS = -std=c++17 -Wall -Wextra -Wno-unused-but-set-variable"
+  [ "CXXFLAGS = -std=c++17 -Wall -Wextra"
+  , "CXXFLAGS_BISON = $(CXXFLAGS) -Wno-unused-but-set-variable"
   , ""
   , "OBJECTS = Absyn.o \\"
   , "\tPrettyPrinter.o \\"
@@ -165,7 +166,7 @@ rules langname = linesToText
   , langname ++ ".tab.o: " ++ langname ++ ".tab.cpp "
     ++ langname ++ ".tab.hpp \\"
   , "\tAbsyn.hpp PatternMatching.hpp"
-  , "\t$(CXX_COMPILE)"
+  , "\t$(CXX) $(CXXFLAGS_BISON) -c -o $@ $<"
   , ""
   , langname ++ ".lex.o: " ++ langname ++ ".lex.cpp " ++ langname ++ ".tab.hpp"
   , "\t$(CXX_COMPILE)"
