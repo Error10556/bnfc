@@ -36,15 +36,18 @@ import BNFC.Backend.CPPVar.AbsynGen (tokenStorageName, ListItemStorage(..))
 
 -- | The name of the header file.
 prettyPrinterHppFilename :: String
-prettyPrinterHppFilename = "PrettyPrinter.hpp"
+prettyPrinterHppFilename = prettyPrinterClassName ++ ".hpp"
 
 -- | The name of the source file.
 prettyPrinterCppFilename :: String
-prettyPrinterCppFilename = "PrettyPrinter.cpp"
+prettyPrinterCppFilename = prettyPrinterClassName ++ ".cpp"
 
 ------------------------------------------------------------------------
 -- * The entrypoint.
 ------------------------------------------------------------------------
+
+prettyPrinterClassName :: String
+prettyPrinterClassName = "PrettyPrinter"
 
 -- | Generates the @PrettyPrinter@ class (declaration and implementation).
 makePrettyPrinter ::
@@ -59,7 +62,7 @@ makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
   where
     packwrap = wrapPackage opts
 
-    hpp = makePrinterHeaderFile "PrettyPrinter" (unlinesToText [s|
+    hpp = makePrinterHeaderFile prettyPrinterClassName (unlinesToText [s|
 // The default pretty printer does not suit all languages.
 // See PrettyPrinter.cpp for details.
 
@@ -96,7 +99,7 @@ public:
 |] $++$ packwrap
       (printerUtilImpl
       $++$ vcatSpaced (map (makeMethod listItemStorage) printable)
-      $++$ operatorShLImpl printable)
+      $++$ makePrinterShlImplementations prettyPrinterClassName printable)
 
 ------------------------------------------------------------------------
 -- * Code generation.
@@ -177,24 +180,6 @@ makeMethod listItemStorage = \case
   PrintableInteger          -> methodInteger
   PrintableChar             -> methodChar
   PrintableDouble           -> methodDouble
-
--- | Generates implementations of overloaded @<<@ (Shift-Left) operators.
-operatorShLImpl :: [PrintableSymbol] -> Doc
-operatorShLImpl printables = unlinesToText [s|
-#define PrettyPrinterSHL(type)                                               \
-    const PrettyPrinter& operator<<(const PrettyPrinter& p, const type& v) { \
-        p(v);                                                                \
-        return p;                                                            \
-    }
-|] $++$ linesToText
-    (map (\p -> "PrettyPrinterSHL(" ++ printableClassName p ++ ");")
-      printables)
-  $++$ unlinesToText [s|
-const PrettyPrinter& operator<<(const PrettyPrinter& p, std::string_view v) {
-    p.out << v;
-    return p;
-}
-|]
 
 ------------------------------------------------------------------------
 -- * Utility for code generation.

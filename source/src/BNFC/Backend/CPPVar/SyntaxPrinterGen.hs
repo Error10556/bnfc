@@ -110,19 +110,7 @@ void SyntaxPrinter::PrintIndentAsIs() const {
     out << (currentIndentIsBranch ? "| " : "  ");
 }
 |] $++$ vcatSpaced (map makeMethod symbols)
-  $++$ unlinesToText [s|
-#define SyntaxPrinterSHL(type)                                             \
-    const SyntaxPrinter& operator<<(const SyntaxPrinter& p, const type& v) \
-    { p(v); return p; }
-|] $++$ linesToText
-    [ "SyntaxPrinterSHL(" ++ name ++ ");"
-    | name <- map printableClassName symbols]
-  $++$ unlinesToText [s|
-const SyntaxPrinter& operator<<(const SyntaxPrinter& p, std::string_view s) {
-    p.out << s;
-    return p;
-}
-|]
+  $++$ makePrinterShlImplementations "SyntaxPrinter" symbols
   where
     maybeDereference = case listItemStorage of
       StoreByValue   -> ""

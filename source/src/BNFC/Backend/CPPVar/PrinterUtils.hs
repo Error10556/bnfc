@@ -18,6 +18,7 @@ module BNFC.Backend.CPPVar.PrinterUtils
 
     -- * Code generation utility
   , makePrinterHeaderFile
+  , makePrinterShlImplementations
   ) where
 
 import Prelude hiding (lookup)
@@ -153,6 +154,7 @@ printableClassName = \case
   PrintableDouble           -> CF.catDouble
   PrintableInteger          -> CF.catInteger
 
+-- | Generates a header file declaring a printer visitor.
 makePrinterHeaderFile ::
      String             -- ^ The printer class name.
   -> Doc                -- ^ Include directives.
@@ -186,3 +188,42 @@ makePrinterHeaderFile className includes classtop printables packwrap =
     makeShlConst s = makeShlRaw $ "const " ++ s ++ "&"
     shlOperators = foldr (($+$) . makeShlConst) (makeShlRaw "std::string_view")
       printableNames
+
+-- | Generates implementations of overloaded @<<@ (Shift-Left) operators
+-- for a printer visitor.
+makePrinterShlImplementations :: String -> [PrintableSymbol] -> Doc
+makePrinterShlImplementations printerClassName printables = let
+    lineDefine = "#define " ++ printerClassName ++ "SHL(type)"
+    lineDefineFunc = "    " ++ operatorSignature "const type& v"
+    lineDefineBody = "    { p(v); return p; }"
+    defineWidth = max (length lineDefine) (length lineDefineFunc) + 1
+  in
+    linesToText
+      [ padBackslash defineWidth lineDefine
+      , padBackslash defineWidth lineDefineFunc
+      , lineDefineBody
+      ]
+    $++$ linesToText
+      [ printerClassName ++ "SHL(" ++ printableClassName p ++ ");"
+      | p <- printables ]
+    $++$ linesToText
+      [ operatorSignature "std::string_view v" ++ " {"
+      , "    p.out << v;"
+      , "    return p;"
+      , "}"
+      ]
+  where
+    operatorSignature param = concat
+      [ "const "
+      , printerClassName
+      , "& operator<<(const "
+      , printerClassName
+      , "& p, "
+      , param
+      , ")"
+      ]
+    padBackslash w s = concat
+      [ s
+      , replicate (w - length s) ' '
+      , "\\"
+      ]
