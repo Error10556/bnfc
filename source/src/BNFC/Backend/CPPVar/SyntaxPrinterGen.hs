@@ -84,7 +84,7 @@ printerClassDecl symbols = linesToText
   , "    void PrintIndentAsIs() const;"
   , ""
   , "public:"
-  , "    SyntaxPrinter(std::ostream& out);"
+  , "    explicit SyntaxPrinter(std::ostream& out);"
   ] $+$ nest 4 (foldr ($+$) empty (map makeMethod symbols))
   $+$ text "};"
   $++$ foldr ($+$) empty (map makeShiftL symbols)
