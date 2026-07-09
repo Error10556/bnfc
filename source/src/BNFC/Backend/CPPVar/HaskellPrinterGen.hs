@@ -107,7 +107,8 @@ makeMethod ::
   -> PrintableSymbol  -- ^ A class to print.
   -> Doc
 makeMethod storeListItemsBy = \case
-  PrintableNormalCategory name -> methodWrap name $ text "std::visit(*this, v);"
+  PrintableNormalCategory name -> methodWrap True name
+    $ text "std::visit(*this, v);"
   PrintableList PrintableListDescription { printListName = name } ->
     let
       derefItem = case storeListItemsBy of
@@ -116,7 +117,7 @@ makeMethod storeListItemsBy = \case
     in
       -- For some reason, commas are not followed by spaces in list
       -- representations in system tests.
-      methodWrap name $ linesToText
+      methodWrap True name $ linesToText
       [ "out << '[';"
       , "if (!v.empty()) {"
       , "    const HaskellPrinter printItem(out);"
@@ -131,7 +132,8 @@ makeMethod storeListItemsBy = \case
       ]
   PrintableFunctionRule rule -> let
       className = CF.funName rule
-      body = case fieldNames $ CF.rhsRule rule of
+      fields = fieldNames $ CF.rhsRule rule
+      body = case fields of
         []     -> text ("out << \"" ++ className ++ "\";")
         fields -> linesToText
           [ "if (inExpression) out << '(';"
@@ -149,21 +151,28 @@ makeMethod storeListItemsBy = \case
               ]
             | (fieldname, fieldtype) <- fields])
           $+$ text "if (inExpression) out << ')';"
-    in methodWrap className body
+    in methodWrap (not (null fields)) className body
   PrintableCustomToken name -> stringlikeMethod name
   PrintableIdent   -> stringlikeMethod "Ident"
   PrintableString  -> stringlikeMethod "String"
   PrintableChar    ->
-    methodWrap "Char" $ text ("PrintEscapedChar(out, v.Value);")
-  PrintableDouble  -> methodWrap "Double" $ text ("PrintDouble(out, v.Value);")
-  PrintableInteger -> methodWrap "Integer" $ text ("out << v.Value;")
+    methodWrap True "Char" $ text ("PrintEscapedChar(out, v.Value);")
+  PrintableDouble  ->
+    methodWrap True "Double" $ text ("PrintDouble(out, v.Value);")
+  PrintableInteger -> methodWrap True "Integer" $ text ("out << v.Value;")
   where
     stringlikeMethod argStructName =
-      methodWrap argStructName
+      methodWrap True argStructName
         $ text ("PrintEscapedString(out, v."
           ++ tokenStorageName argStructName ++ ");")
-    methodWrap name body =
-      text ("void HaskellPrinter::operator()(const " ++ name ++ "& v) const {")
+    methodWrap argUsed name body =
+      text (concat
+        [ "void HaskellPrinter::operator()(const "
+        , name
+        , "&"
+        , (if argUsed then " v" else "")
+        , ") const {"
+        ])
       $+$ nest 4 body
       $+$ text "}"
     isPointerCat = \case
