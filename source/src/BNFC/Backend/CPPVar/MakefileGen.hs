@@ -21,11 +21,12 @@ makeMakefile ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> Doc
 makeMakefile opts =
-  variables langname
+  variables langname makefileName
   $++$ helpTextVariable langname
   $++$ rules langname
   where
     langname = Options.lang opts
+    Just makefileName = Options.optMake opts
 
 ------------------------------------------------------------------------
 -- * Utility.
@@ -67,8 +68,9 @@ makeHelpTable80 = makeHelpTable 80
 -- | Variable definitions.
 variables ::
      String  -- ^ Language name.
+  -> String  -- ^ Makefile name.
   -> Doc
-variables langname = linesToText
+variables langname makefileName = linesToText
   [ "CXXFLAGS = -std=c++17 -Wall -Wextra"
   , "CXXFLAGS_BISON = $(CXXFLAGS) -Wno-unused-but-set-variable"
   , ""
@@ -87,7 +89,6 @@ variables langname = linesToText
   , "\tAbsyn.hpp \\"
   , "\tHaskellPrinter.cpp \\"
   , "\tHaskellPrinter.hpp \\"
-  , "\tMakefile \\"
   , "\tPatternMatching.hpp \\"
   , "\tPrettyPrinter.cpp \\"
   , "\tPrettyPrinter.hpp \\"
@@ -97,7 +98,8 @@ variables langname = linesToText
   , "\tSyntaxPrinter.hpp \\"
   , "\tTest.cpp \\"
   , "\t" ++ langname ++ ".l \\"
-  , "\t" ++ langname ++ ".ypp"
+  , "\t" ++ langname ++ ".ypp \\"
+  , "\t" ++ makefileName
   ]
 
 -- | A help table for phony targets.
@@ -153,7 +155,7 @@ rules langname = linesToText
   , ""
   , ""
   , "endef"
-  , "MOSTLYCLEAN_FILES := $(OBJECTS) $(ARCHIVES) Testgrammar"
+  , "MOSTLYCLEAN_FILES := $(OBJECTS) $(ARCHIVES) Test" ++ langname
   , "BAKFILES := $(foreach f,$(BNFC_GENERATED),$(f).bak)"
   , "CLEAN_FILES := " ++ langname ++ ".lex.cpp " ++ langname ++ ".tab.cpp "
     ++ langname ++ ".tab.hpp $(BAKFILES)"
