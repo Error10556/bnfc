@@ -255,6 +255,7 @@ library
     BNFC.Backend.CPPVar.BisonGen
     BNFC.Backend.CPPVar.PatternMatchingGen
     BNFC.Backend.CPPVar.PrinterUtils
+    BNFC.Backend.CPPVar.HaskellPrinterGen
     BNFC.Backend.CPPVar.SyntaxPrinterGen
     BNFC.Backend.CPPVar.PrettyPrinterGen
     BNFC.Backend.CPPVar.PrinterCommonGen
