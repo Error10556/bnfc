@@ -25,6 +25,7 @@ import qualified BNFC.Backend.CPPVar.PatternMatchingGen as PatternMatchingGen
 import qualified BNFC.Backend.CPPVar.PrinterUtils as PrinterUtils
 import qualified BNFC.Backend.CPPVar.SyntaxPrinterGen as SyntaxPrinterGen
 import qualified BNFC.Backend.CPPVar.PrettyPrinterGen as PrettyPrinterGen
+import qualified BNFC.Backend.CPPVar.HaskellPrinterGen as HaskellPrinterGen
 import qualified BNFC.Backend.CPPVar.TestGen as TestGen
 import qualified BNFC.Backend.CPPVar.PrinterCommonGen as PrinterCommonGen
 import qualified BNFC.Backend.CPPVar.MakefileGen as MakefileGen
@@ -102,6 +103,10 @@ makeCppVar opts (CFG
       { cppHeaderText = prettyHpp
       , cppSourceText = prettyCpp
       } = PrettyPrinterGen.makePrettyPrinter opts printables listItemStorage
+    CPPUtil.CPPHeaderSourcePair
+      { cppHeaderText = haskellHpp
+      , cppSourceText = haskellCpp
+      } = HaskellPrinterGen.makeHaskellPrinter opts printables listItemStorage
   mkfile AbsynGen.absynHppFilename comment absynHpp
   mkfile AbsynGen.absynCppFilename comment absynCpp
   mkfile (FlexGen.flexFilename opts) comment flexFile
@@ -116,6 +121,8 @@ makeCppVar opts (CFG
   mkfile SyntaxPrinterGen.syntaxPrinterCppFilename comment syntaxCpp
   mkfile PrettyPrinterGen.prettyPrinterHppFilename comment prettyHpp
   mkfile PrettyPrinterGen.prettyPrinterCppFilename comment prettyCpp
+  mkfile HaskellPrinterGen.haskellPrinterHppFilename comment haskellHpp
+  mkfile HaskellPrinterGen.haskellPrinterCppFilename comment haskellCpp
   mkfile TestGen.testFilename comment (TestGen.makeTest opts)
   case optMake opts of
     Nothing           -> return ()
