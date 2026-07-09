@@ -57,7 +57,9 @@ makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
-    hpp = unlinesToText [s|
+    packwrap = wrapPackage opts
+
+    hpp = makePrinterHeaderFile "PrettyPrinter" (unlinesToText [s|
 // The default pretty printer does not suit all languages.
 // See PrettyPrinter.cpp for details.
 
@@ -65,30 +67,8 @@ makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
 #include <iostream>
 #include <string_view>
 #include "Absyn.hpp"
-|] $++$ packwrap (printerClassDecl printable)
-
-    cpp = disclaimer $++$ unlinesToText [s|
-#include "PrettyPrinter.hpp"
-
-#include "PrinterCommon.hpp"
-|] $++$ packwrap
-      (printerUtilImpl
-      $++$ vcatSpaced (map (makeMethod listItemStorage) printable)
-      $++$ operatorShLImpl printable)
-
-    packwrap = wrapPackage opts
-
-------------------------------------------------------------------------
--- * Code generation.
-------------------------------------------------------------------------
-
--- | Generates the class declaration with t'PrintableSymbol's translated to
--- methods.
-printerClassDecl ::
-     [PrintableSymbol]  -- ^ What to support printing.
-  -> Doc
-printerClassDecl printable = unlinesToText [s|
-class PrettyPrinter {
+|])
+      (unlinesToText [s|
     std::ostream& out;
     unsigned int indent;
     int coercionLevel;
@@ -106,16 +86,21 @@ public:
                            int coercionLevel = 0) const;
     PrettyPrinter WithCoercionLevel(int level) const;
     void NewLine() const;
-|] $+$ nest 4 (linesToText (map method printable)) $+$ text "};"
-  $++$ linesToText (map operatorShL printable) $+$ text [s|
-const PrettyPrinter& operator<<(const PrettyPrinter&, std::string_view);
-|]
-  where
-    method p =
-      "void operator()(const " ++ printableClassName p ++ "&) const;"
-    operatorShL p =
-      "const PrettyPrinter& operator<<(const PrettyPrinter&, const "
-      ++ printableClassName p ++ "&);"
+|])
+      printable packwrap
+
+    cpp = disclaimer $++$ unlinesToText [s|
+#include "PrettyPrinter.hpp"
+
+#include "PrinterCommon.hpp"
+|] $++$ packwrap
+      (printerUtilImpl
+      $++$ vcatSpaced (map (makeMethod listItemStorage) printable)
+      $++$ operatorShLImpl printable)
+
+------------------------------------------------------------------------
+-- * Code generation.
+------------------------------------------------------------------------
 
 -- | A notice to the user about the limitations.
 disclaimer :: Doc

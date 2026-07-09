@@ -15,11 +15,15 @@ module BNFC.Backend.CPPVar.PrinterUtils
     -- * Conversions
   , literalName2Symbol
   , printableClassName
+
+    -- * Code generation utility
+  , makePrinterHeaderFile
   ) where
 
 import Prelude hiding (lookup)
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Text.PrettyPrint (Doc, ($+$), text, empty, nest)
 
 import qualified BNFC.CF as CF
 import BNFC.Backend.CPPVar.CPPUtil
@@ -148,3 +152,37 @@ printableClassName = \case
   PrintableString           -> CF.catString
   PrintableDouble           -> CF.catDouble
   PrintableInteger          -> CF.catInteger
+
+makePrinterHeaderFile ::
+     String             -- ^ The printer class name.
+  -> Doc                -- ^ Include directives.
+  -> Doc
+    -- ^ Top of class declaration (between @class Printer {@ and the methods)
+  -> [PrintableSymbol]  -- ^ Printing methods.
+  -> (Doc -> Doc)       -- ^ Namespace wrapping function.
+  -> Doc
+makePrinterHeaderFile className includes classtop printables packwrap =
+  includes $++$ packwrap inNamespace
+  where
+    inNamespace =
+      text ("class " ++ className ++ "{")
+      $+$ classtop
+      $+$ visitMethods
+      $+$ text "};"
+      $++$ shlOperators
+    printableNames = map printableClassName printables
+    visitMethods = nest 4 $ foldr ($+$) empty
+      [ text $ "void operator()(const " ++ s ++ "&) const;"
+      | s <- printableNames ]
+    makeShlRaw s = text $ concat
+      [ "const "
+      , className
+      , "& operator<<(const "
+      , className
+      , "&, "
+      , s
+      , ");"
+      ]
+    makeShlConst s = makeShlRaw $ "const " ++ s ++ "&"
+    shlOperators = foldr (($+$) . makeShlConst) (makeShlRaw "std::string_view")
+      printableNames

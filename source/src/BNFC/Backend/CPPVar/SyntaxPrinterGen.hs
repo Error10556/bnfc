@@ -56,57 +56,32 @@ makeSyntaxPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
-    hpp = linesToText
-      [ "#pragma once"
-      , "#include <iostream>"
-      , "#include <string_view>"
-      , "#include \"Absyn.hpp\""
-      ] $++$ packwrap (printerClassDecl printable)
+    packwrap = wrapPackage opts
+
+    hpp = makePrinterHeaderFile "SyntaxPrinter" (unlinesToText [s|
+#pragma once
+#include <iostream>
+#include <string_view>
+#include "Absyn.hpp"
+|])
+      (unlinesToText [s|
+    std::ostream& out;
+    bool currentIndentIsBranch;
+    const SyntaxPrinter* maybeParent;
+    SyntaxPrinter(const SyntaxPrinter* parent, bool currentIndentIsBranch);
+    friend const SyntaxPrinter& operator<<(const SyntaxPrinter&,
+                                           std::string_view);
+    void PrintIndentForHeader() const;
+    void PrintIndentAsIs() const;
+
+public:
+    explicit SyntaxPrinter(std::ostream& out);
+|])
+      printable packwrap
+
     cpp = text "#include \"SyntaxPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""
       $++$ packwrap (printerImpl listItemStorage printable)
-    packwrap = wrapPackage opts
-
--- | Generates the class declaration.
-printerClassDecl ::
-     [PrintableSymbol]  -- ^ The list of types to make methods for.
-  -> Doc
-printerClassDecl symbols = linesToText
-  [ "class SyntaxPrinter {"
-  , "    std::ostream& out;"
-  , "    bool currentIndentIsBranch;"
-  , "    const SyntaxPrinter* maybeParent;"
-  , "    SyntaxPrinter(const SyntaxPrinter* parent, " ++
-    "bool currentIndentIsBranch);"
-  , "    friend const SyntaxPrinter& operator<<(const SyntaxPrinter&,"
-  , "                                           std::string_view);"
-  , "    void PrintIndentForHeader() const;"
-  , "    void PrintIndentAsIs() const;"
-  , ""
-  , "public:"
-  , "    explicit SyntaxPrinter(std::ostream& out);"
-  ] $+$ nest 4 (foldr ($+$) empty (map makeMethod symbols))
-  $+$ text "};"
-  $++$ foldr ($+$) empty (map makeShiftL symbols)
-  $+$ makeShiftLRaw "std::string_view"
-  where
-    makeMethodRaw s = text $ "void operator()(const " ++ s ++ "&) const;"
-    makeMethod      = makeMethodRaw . printableClassName
-    makeShiftLRaw s = text $ concat
-      ["const SyntaxPrinter& operator<<(const SyntaxPrinter&, ", s, ");"]
-    makeShiftL      = \case
-      PrintableNormalCategory name -> make name
-      PrintableList
-        (PrintableListDescription {printListName = name}) -> make name
-      PrintableFunctionRule rule   -> make $ CF.funName rule
-      PrintableCustomToken name    -> make name
-      PrintableIdent               -> make CF.catIdent
-      PrintableString              -> make CF.catString
-      PrintableDouble              -> make CF.catDouble
-      PrintableInteger             -> make CF.catInteger
-      PrintableChar                -> make CF.catChar
-      where
-        make s = makeShiftLRaw $ concat ["const ", s, "&"]
 
 -- | Generates the implementation.
 printerImpl ::
