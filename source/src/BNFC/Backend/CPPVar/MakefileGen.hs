@@ -214,6 +214,7 @@ rules langname = linesToText
     ++ "SyntaxPrinter.hpp PatternMatching.hpp"
   , "\t$(CXX_COMPILE)"
   , ""
-  , "Test: Test.o lib" ++ langname ++ "Parser.a lib" ++ langname ++ "Printer.a"
-  , "\t$(CXX) $(LDFLAGS) $^ -o Test"
+  , "Test" ++ langname ++ ": Test.o lib" ++ langname ++ "Parser.a lib"
+    ++ langname ++ "Printer.a"
+  , "\t$(CXX) $(LDFLAGS) $^ -o Test" ++ langname
   ]
