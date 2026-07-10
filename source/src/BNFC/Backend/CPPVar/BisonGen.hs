@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes #-}
 {-|
   Module      : BNFC.Backend.CPPVar.BisonGen
   Description : Bison grammar generator.
@@ -18,6 +19,7 @@ module BNFC.Backend.CPPVar.BisonGen
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.String.QQ (s)
 
 import Text.PrettyPrint
 
@@ -52,7 +54,7 @@ makeBison opts implicitTokenNames literals pragmas
   $++$ tokenDefs implicitTokenNames literals pragmas
   $++$ codeRequires utils entrypoints
   $++$ nonterms groupedRules
-  $++$ codeProvides utils entrypoints
+  $++$ codeProvides utils
   $++$ codeLex utils
   $++$ text "%start __start__"
   $++$ text "%%"
@@ -60,9 +62,9 @@ makeBison opts implicitTokenNames literals pragmas
   $++$ vcatSpaced (map (uncurry $ category implicitTokenNames storeListItemsBy)
       $ Map.toList rulemap)
   $++$ text "%%"
-  $++$ codeSection utils opts entrypoints
+  $++$ codeSection utils opts
   where
-    utils       = newBisonUtils opts
+    utils = newBisonUtils opts
 
 ------------------------------------------------------------------------
 -- * General utility.
@@ -225,16 +227,54 @@ nonterms (GroupedRules rulemap) = linesToText $ map nonterm $ Map.keys rulemap
 -- | Generates the public declarations used by the client.
 codeProvides ::
      BisonUtils
-  -> [CF.Cat]  -- ^ Grammar entrypoints.
   -> Doc
-codeProvides utils entrypoints = bisonBraces "%code provides"
+codeProvides utils = bisonBraces "%code provides"
   $ namespaceWrap utils
-    $ maybeImportParserClass $+$ linesToText
-    [ "using ParseResultOrError ="
-    , "    std::variant<ParseResultVariant, Parser::syntax_error>;"
-    , "ParseResultOrError Parse(FILE* file);"
-    , "ParseResultOrError Parse(std::string_view str);"
-    ] $+$ foldr ($+$) empty (map entrypoint entrypoints)
+    $ maybeImportParserClass $+$ unlinesToText [s|
+using ParseResultOrError =
+    std::variant<ParseResultVariant, Parser::syntax_error>;
+ParseResultOrError Parse(FILE* file);
+ParseResultOrError Parse(std::string_view str);
+
+template <class T>
+std::variant<T, Parser::syntax_error>
+EnsureParsedType(ParseResultOrError&& parsed) {
+    using RetType = std::variant<T, Parser::syntax_error>;
+    return std::visit([](auto&& v) -> RetType {
+        using TParsedOrError = std::decay_t<decltype(v)>;
+        if constexpr
+            (std::is_same_v<TParsedOrError, Parser::syntax_error>) {
+            return std::move(v);
+        } else {  // ParseResultVariant
+            return std::visit([](auto&& v) -> RetType {
+                using TParsedClass = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<TParsedClass, T>) {
+                    return std::move(v);
+                } else {
+                    std::string msg = "Unexpected syntax: tried to parse ";
+                    msg.append(reflection::SyntaxNodeName<T>)
+                        .append(", but got ")
+                        .append(reflection::SyntaxNodeName<TParsedClass>);
+                    return Parser::syntax_error(msg);
+                }
+            }, std::move(v));
+        }
+    }, std::move(parsed));
+}
+
+template <class T>
+std::variant<T, Parser::syntax_error> ParseAs(FILE* file) {
+    static_assert(reflection::IsParserEntrypoint<T>,
+        "Cannot parse this class");
+    return EnsureParsedType<T>(Parse(file));
+}
+template <class T>
+std::variant<T, Parser::syntax_error> ParseAs(std::string_view str) {
+    static_assert(reflection::IsParserEntrypoint<T>,
+        "Cannot parse this class");
+    return EnsureParsedType<T>(Parse(str));
+}
+|]
   where
     -- | Bison generates the parser class in the `yy` namespace when no custom
     -- package name is provided. If we want the BNFC-generated parser to be
@@ -242,18 +282,6 @@ codeProvides utils entrypoints = bisonBraces "%code provides"
     maybeImportParserClass
       | inPackage utils = empty
       | otherwise       = text "using yy::Parser;"
-    entrypoint cat = linesToText
-      [ funcName ++ "(FILE* file);"
-      , funcName ++ "(std::string_view str);"
-      ]
-      where
-        funcName = concat
-          [ "std::variant<"
-          , namespacePrefix utils
-          , catNameNoCoerc cat
-          , ", Parser::syntax_error> Parse"
-          , catNameNoCoerc cat
-          ]
 
 -- | Generates a bit of code that makes the lexer available.
 codeLex :: BisonUtils -> Doc
@@ -429,13 +457,10 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
 codeSection ::
      BisonUtils
   -> Options.SharedOptions  -- ^ BNFC invokation options.
-  -> [CF.Cat]               -- ^ Grammar entrypoints.
   -> Doc
-codeSection utils opts entrypoints =
-  text "#include \"PatternMatching.hpp\""
-  $++$ namespaceWrap utils
-    (FlexGen.scannerDecl opts
-    $++$ linesToText
+codeSection utils opts = namespaceWrap utils $
+  FlexGen.scannerDecl opts
+  $++$ linesToText
   [ "void Parser::error(const std::string& msg) {"
   , "    *result = {{syntax_error(msg)}};"
   , "}"
@@ -456,45 +481,8 @@ codeSection utils opts entrypoints =
   , "ParseResultOrError Parse(std::string_view str) {"
   , "    return Parse(" ++ scannerName ++ "(str));"
   , "}"
-  , ""
-  , "template <class T>"
-  , "static std::variant<T, Parser::syntax_error>"
-  , "EnsureParsedType(ParseResultOrError&& parsed) {"
-  , "    using RetType = std::variant<T, Parser::syntax_error>;"
-  , "    return std::move(parsed) | PatternMatch{"
-  , "        [](Parser::syntax_error&& err) -> RetType {"
-  , "            return std::move(err);"
-  , "        },"
-  , "        [](ParseResultVariant&& var) -> RetType {"
-  , "            return std::move(var) | PatternMatch{"
-  , "                [](T&& target) -> RetType { return std::move(target); },"
-  , "                [](auto&& node) -> RetType {"
-  , "                    using gotType = std::decay_t<decltype(node)>;"
-  , "                    std::string msg = "
-    ++ "\"Unexpected syntax: tried to parse \";"
-  , "                    msg.append(reflection::SyntaxNodeName<T>)"
-  , "                        .append(\", but got \")"
-  , "                        .append(reflection::SyntaxNodeName<gotType>);"
-  , "                    return Parser::syntax_error(msg);"
-  , "                }"
-  , "            };"
-  , "        }"
-  , "    };"
-  , "}"
-  ] $++$ vcatSpaced (map (entrypointImpl . catNameNoCoerc) entrypoints)
-    )
+  ]
   where
     scannerName = case Options.inPackage opts of
       Nothing -> "Scanner"
       Just ns -> ns ++ "Scanner"
-    entrypointImpl name = linesToText
-      [ "std::variant<" ++ name ++
-        ", Parser::syntax_error> Parse" ++ name ++ "(FILE* file) {"
-      , "    return EnsureParsedType<" ++ name ++ ">(Parse(file));"
-      , "}"
-      , ""
-      , "std::variant<" ++ name ++ ", Parser::syntax_error> Parse"
-        ++ name ++ "(std::string_view str) {"
-      , "    return EnsureParsedType<" ++ name ++ ">(Parse(str));"
-      , "}"
-      ]
