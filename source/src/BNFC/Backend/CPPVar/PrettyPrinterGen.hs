@@ -395,7 +395,8 @@ methodFunctionRule r = linesToText
       []          -> (empty, False)
       term : tail -> case term of
         Str s   ->
-          (text ("out << " ++ show s ++ ";") $+$ taildoc, tailUsesPrinter)
+          ( text ("out << " ++ cppShowString s ++ ";") $+$ taildoc
+          , tailUsesPrinter)
         Newline -> (text (printerDot ++ "NewLine();") $+$ taildoc, True)
         Nest ns ->
           let (nestdoc, nestUsesPrinter) = nestedTerm2doc (lv + 1) ns
@@ -488,7 +489,7 @@ methodList listItemStorage (PrintableListDescription
           $ getBasicPrintTerms $ map Right strs
       where
         printthis = \case
-          Str s         -> "out << " ++ show s ++ ";"
+          Str s         -> "out << " ++ cppShowString s ++ ";"
           Newline       -> "NewLine();";
           Nest _        -> error "Somehow got nesting in list"
           Nonterminal _ -> error "Somehow got categories in separators"
