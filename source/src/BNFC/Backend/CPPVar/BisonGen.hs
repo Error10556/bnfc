@@ -347,8 +347,8 @@ category ::
 category (FlexGen.NamedImplicitTokens implicitTokenNames)
     storeListItemsBy cat rules =
   case cat of
-    Nontoken_ListCat lElem -> text (nontokenCatNameWithCoerc cat) $+$ bisonRules
-        [makeRule r | r <- rules, CF.internal r == CF.Parsable]
+    Nontoken_ListCat lElem -> makeCategoryFromRules
+      [makeRule r | r <- rules, CF.internal r == CF.Parsable]
       where
         lElemClass = catNameNoCoerc lElem
         maybeMakeUnique = case storeListItemsBy of
@@ -391,8 +391,8 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
             name    -> error ("Invalid name for a list category: " ++ name)
 
     -- non-list
-    _ -> text (nontokenCatNameWithCoerc cat) $+$ bisonRules
-        [makeRule r | r <- rules, CF.internal r == CF.Parsable]
+    _ -> makeCategoryFromRules
+      [makeRule r | r <- rules, CF.internal r == CF.Parsable]
       where
         makeRule r = case CF.funName r of
           "_"  -> coercionRule (CF.rhsRule r)
@@ -401,6 +401,11 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
             then emplacementRule name (CF.rhsRule r)
             else functionRule    name (CF.rhsRule r)
   where
+    -- | Does not create a category if given an empty list of rules.
+    makeCategoryFromRules :: [String] -> Doc
+    makeCategoryFromRules = \case
+      [] -> empty
+      nonempty -> text (nontokenCatNameWithCoerc cat) $+$ bisonRules nonempty
     coercionRule :: CF.SentForm -> String
     coercionRule rhs = concat
         [ "/* _ */ "
