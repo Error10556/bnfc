@@ -373,7 +373,7 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
           AbsynGen.StoreByPointer -> \ s -> concat
             ["std::make_unique<" , lElemClass , ">(" , s , ")"]
         makeRule r =
-          let rhs = CF.rhsRule r
+          let rhs = CF.rhsRule $ CF.removeWhiteSpaceSeparators r
           in case CF.funName r of
             "_"     -> coercionRule rhs
             "(:)"   -> concat
@@ -458,9 +458,9 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
     sentFormToBison :: CF.SentForm -> String
     sentFormToBison = unwords . unempty . map (\case
       Left cat -> sentFormCatToBisonName cat
-      Right s  -> (case s `Map.lookup` implicitTokenNames of
-        Nothing   -> error "string token not named"
-        Just name -> name))
+      Right s  -> case s `Map.lookup` implicitTokenNames of
+          Nothing   -> error "string token not named"
+          Just name -> name)
       where
         unempty = \case
           []       -> ["/* empty */"]

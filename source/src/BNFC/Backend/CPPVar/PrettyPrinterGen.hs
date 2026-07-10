@@ -18,6 +18,7 @@ module BNFC.Backend.CPPVar.PrettyPrinterGen
   ) where
 
 -- Language imports
+import Data.Char (isSpace)
 import Data.String.QQ
 
 import Text.PrettyPrint hiding (Str)
@@ -110,11 +111,14 @@ disclaimer :: Doc
 disclaimer = unlinesToText [s|
 /**** Disclaimer ****
  * The default PrettyPrinter implementation makes a number of assumptions about
- * the target language. Namely:
+ * the target language.
  *
- * * All tokens are separated from each other by a space, except for commas ','
- *   and semicolons ';', which are only separated from the right, and brackets
- *  '[]' or parentheses '()', which are not separated from the enclosed text.
+ * * All tokens are separated from each other by a space. The exceptions are:
+ *   - commas ',' and semicolons ';', which are only separated from the right;
+ *   - brackets '[]' and parentheses '()', which are not separated from the
+ *     enclosed text;
+ *   - tokens that start and/or end with whitespace, which are not separated on
+ *     the whitespace side(s).
  *
  * * Curly braces '{}' (and only those) enclose an indented block. The
  *   indentation equals 4 spaces. The left curly brace causes one line break
@@ -274,14 +278,22 @@ handleTokenSpacing = \case
     needSep :: PrintTerm -> PrintTerm -> Bool
     needSep a b = case a of
       Newline -> False
-      Str s   -> (s `notElem` ["{", "[", "("]) && right
+      Str s   -> (s `notElem` ["{", "[", "("]) && not (endsInSpace s) && right
       _       -> right
       where
         right = case b of
           Newline -> False
-          Str s   -> s `notElem` ["}", "]", ")", ",", ";"]
+          Str s   ->
+            s `notElem` ["}", "]", ")", ",", ";"] && (not $ startsWithSpace s)
           _       -> True
     space = Str " "
+    endsInSpace = \case
+      ""       -> True
+      [ch]     -> isSpace ch
+      _ : tail -> endsInSpace tail
+    startsWithSpace = \case
+      ""       -> True
+      head : _ -> isSpace head
 
 -- | Step 3.
 -- Merges consequent v'Str' terms into one.
