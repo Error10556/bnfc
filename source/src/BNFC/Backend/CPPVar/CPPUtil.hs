@@ -31,6 +31,7 @@ module BNFC.Backend.CPPVar.CPPUtil
 
     -- * Category functions
   , removePrecedenceFromCat
+  , extractEntrypoints
   , catNameNoCoerc
   , catNameWithCoerc
   , nontokenCatNameNoCoerc
@@ -51,6 +52,10 @@ import Text.PrettyPrint (Doc, ($+$), text, isEmpty, empty)
 -- BNFC imports
 import qualified BNFC.Options as Options
 import qualified BNFC.CF as CF
+
+------------------------------------------------------------------------
+-- * C++ files.
+------------------------------------------------------------------------
 
 -- | A record returned from some code-generator functions,
 -- contains the text to put in the header and the source files.
@@ -75,10 +80,21 @@ data CPPHeaderSourcePair = CPPHeaderSourcePair
   | isEmpty b = a
   | otherwise = a $+$ text "" $+$ b
 
--- | Concatenates multiple blocks vertically inserting an empty line inbetween
--- each two.
-vcatSpaced :: [Doc] -> Doc
-vcatSpaced = foldr ($++$) empty
+-- | Converts a list of individual lines into a block of text.
+--
+-- Is /not/ equivalent to @text . unlines@ because the latter returns a block
+-- that thinks it contains exactly one line.
+linesToText :: [String] -> Doc
+linesToText = foldr ($+$) empty . map text
+
+-- | Converts a (possibly multiline) string into a block of text.
+--
+-- In particular, @unlinesToText ""@ returns 'Text.PrettyPrint.empty'.
+--
+-- Is /not/ equivalent to @text@ because the latter returns a block
+-- that thinks it contains exactly one line.
+unlinesToText :: String -> Doc
+unlinesToText = linesToText . lines
 
 -- | Wraps a code block into a namespace. Does not indent the block.
 wrapNamespace ::
@@ -99,21 +115,10 @@ wrapPackage ::
   -> Doc
 wrapPackage opts = maybe id wrapNamespace (Options.inPackage opts)
 
--- | Converts a list of individual lines into a block of text.
---
--- Is /not/ equivalent to @text . unlines@ because the latter returns a block
--- that thinks it contains exactly one line.
-linesToText :: [String] -> Doc
-linesToText = foldr ($+$) empty . map text
-
--- | Converts a (possibly multiline) string into a block of text.
---
--- In particular, @unlinesToText ""@ returns 'Text.PrettyPrint.empty'.
---
--- Is /not/ equivalent to @text@ because the latter returns a block
--- that thinks it contains exactly one line.
-unlinesToText :: String -> Doc
-unlinesToText = linesToText . lines
+-- | Concatenates multiple blocks vertically inserting an empty line inbetween
+-- each two.
+vcatSpaced :: [Doc] -> Doc
+vcatSpaced = foldr ($++$) empty
 
 ------------------------------------------------------------------------
 -- * Types & functions to use with grammar rules.
@@ -126,16 +131,6 @@ data NontokenCategory
   | Nontoken_ListCat  !CF.Cat           -- ^ As v'BNFC.CF.ListCat'.
   deriving (Eq, Ord, Show)
 
--- | Generalizes a t'NontokenCategory'.
-nontoken2cat :: NontokenCategory -> CF.Cat
-nontoken2cat = \case
-  Nontoken_Cat name         -> CF.Cat name
-  Nontoken_CoercCat name lv -> CF.CoercCat name lv
-  Nontoken_ListCat elemCat  -> CF.ListCat elemCat
-
--- | Rules grouped by the category.
-newtype GroupedRules = GroupedRules (Map NontokenCategory [CF.Rule])
-
 -- | A grammar category that is neither a v'BNFC.CF.TokenCat'
 -- nor a v'BNFC.CF.CoercCat'.
 data NontokenClassCategory
@@ -143,9 +138,19 @@ data NontokenClassCategory
   | NontokenClass_ListCat !CF.Cat  -- ^ As v'BNFC.CF.ListCat'.
   deriving (Eq, Ord, Show)
 
+-- | Rules grouped by the category.
+newtype GroupedRules = GroupedRules (Map NontokenCategory [CF.Rule])
+
 -- | Rules
 newtype MergedGroupedRules
   = MergedGroupedRules (Map NontokenClassCategory [CF.Rule])
+
+-- | Generalizes a t'NontokenCategory'.
+nontoken2cat :: NontokenCategory -> CF.Cat
+nontoken2cat = \case
+  Nontoken_Cat name         -> CF.Cat name
+  Nontoken_CoercCat name lv -> CF.CoercCat name lv
+  Nontoken_ListCat elemCat  -> CF.ListCat elemCat
 
 -- | Group rules by the category.
 groupRules ::
@@ -166,6 +171,30 @@ groupRules = GroupedRules . foldr add Map.empty
             error "Grammar has a production rule for a token"
       in
         Map.insertWith (++) cat [rule]
+
+-- | Returns appropriate class field names for a class representing a BNFC
+-- label. Numbers similar names.
+fieldNames :: CF.SentForm -> [(String, CF.Cat)]
+fieldNames sentForm = let
+    members = [cat | (Left cat) <- sentForm]
+    unindexedNames = map ((++ "_") . catNameNoCoerc) members
+    indexedNames = indexNames' unindexedNames
+  in
+    zip indexedNames members
+  where
+    indexNames' names =
+      help names Map.empty
+      where
+        nonuniq = Set.fromList $ nonunique names
+        help :: [String] -> Data.Map.Map String Int -> [String]
+        help [] _ = []
+        help (name : tail) prevs =
+          if name `elem` nonuniq
+          then
+            let curindex = maybe 1 (+1) (Map.lookup name prevs)
+            in (name ++ show curindex) :
+              help tail (Map.insert name curindex prevs)
+          else name : help tail prevs
 
 -- | Removes precedence information from the categories (keys) of
 -- t'GroupedRules'. Does not change the 'BNFC.CF.Rule's (values).
@@ -189,6 +218,10 @@ isClassLabel = \case
   ""        -> False
   first : _ -> isAsciiUpper first
 
+------------------------------------------------------------------------
+-- * Category functions.
+------------------------------------------------------------------------
+
 -- | The correct precedence removal function.
 -- Preserves precedence in list elements.
 removePrecedenceFromCat :: CF.Cat -> CF.Cat
@@ -196,25 +229,23 @@ removePrecedenceFromCat = \case
   CF.CoercCat s _ -> CF.Cat s
   other           -> other
 
--- | Transforms a string into a valid C identifier.
---
---  * Replaces invalid characters with @_@;
---  * Ensures that the identifier starts with a letter or @_@.
-normalizeCPPName :: String -> String
-normalizeCPPName =
-  (\case
-    []       -> "_"
-    s@(ch:_) ->
-      if isAlpha_ ch
-      then s
-      else '_' : s
-  ) . map (\ ch ->
-    if isAlnum ch
-    then ch
-    else '_')
+-- | Returns a list of categories to use as parse targets.
+-- If the grammar does not specify them explicitly, returns all categories.
+-- /Removes/ precedence information because we only want class names
+-- (Bison does not support specifying an exact starting point).
+-- Deduplicates specified categories.
+extractEntrypoints ::
+     [CF.Pragma]   -- ^ Grammar pragmas (contain @entrypoint@ declarations).
+  -> GroupedRules  -- ^ Rules grouped by category.
+  -> [CF.Cat]
+extractEntrypoints pragmas (GroupedRules rulemap)
+  | null res  = Set.toList $ Set.fromList
+    $ map (removePrecedenceFromCat . nontoken2cat) $ Map.keys rulemap
+  | otherwise = res
   where
-    isAlpha_ ch = isAsciiLower ch || isAsciiUpper ch || ch == '_'
-    isAlnum ch  = isAlpha_ ch || isDigit ch
+    res = Set.toList $ Set.fromList $ concat
+      [ map (removePrecedenceFromCat . CF.wpThing) cats
+      | CF.EntryPoints cats <- pragmas]
 
 -- | For a given nonterminal, returns a C identifier suitable for a class name
 -- (drops precedence information).
@@ -251,30 +282,6 @@ nontokenClassCatName = \case
   NontokenClass_Cat     n       -> normalizeCPPName n
   NontokenClass_ListCat elemCat -> "List" ++ catNameWithCoerc elemCat
 
--- | Returns appropriate class field names for a class representing a BNFC
--- label. Numbers similar names.
-fieldNames :: CF.SentForm -> [(String, CF.Cat)]
-fieldNames sentForm = let
-    members = [cat | (Left cat) <- sentForm]
-    unindexedNames = map ((++ "_") . catNameNoCoerc) members
-    indexedNames = indexNames' unindexedNames
-  in
-    zip indexedNames members
-  where
-    indexNames' names =
-      help names Map.empty
-      where
-        nonuniq = Set.fromList $ nonunique names
-        help :: [String] -> Data.Map.Map String Int -> [String]
-        help [] _ = []
-        help (name : tail) prevs =
-          if name `elem` nonuniq
-          then
-            let curindex = maybe 1 (+1) (Map.lookup name prevs)
-            in (name ++ show curindex) :
-              help tail (Map.insert name curindex prevs)
-          else name : help tail prevs
-
 -- | Returns a (deduplicated) list of elements that occur more than once in the
 -- given list. \( O(n \log n) \).
 nonunique :: (Ord a, Eq a) => [a] -> [a]
@@ -291,3 +298,23 @@ nonunique lst = case sort lst of
           then x : help False x tail'
           else help False x tail')
         else help True x tail'
+
+-- | Transforms a string into a valid C identifier.
+--
+--  * Replaces invalid characters with @_@;
+--  * Ensures that the identifier starts with a letter or @_@.
+normalizeCPPName :: String -> String
+normalizeCPPName =
+  (\case
+    []       -> "_"
+    s@(ch:_) ->
+      if isAlpha_ ch
+      then s
+      else '_' : s
+  ) . map (\ ch ->
+    if isAlnum ch
+    then ch
+    else '_')
+  where
+    isAlpha_ ch = isAsciiLower ch || isAsciiUpper ch || ch == '_'
+    isAlnum ch  = isAlpha_ ch || isDigit ch

@@ -69,25 +69,6 @@ makeBison opts implicitTokenNames literals pragmas
 -- * General utility.
 ------------------------------------------------------------------------
 
--- | Returns a list of categories to use as parse targets.
--- If the grammar does not specify them explicitly, returns all categories.
--- /Removes/ precedence information because we only want class names
--- (Bison does not support specifying an exact starting point).
--- Deduplicates specified categories.
-extractEntrypoints ::
-     [CF.Pragma]   -- ^ Grammar pragmas (contain @entrypoint@ declarations).
-  -> GroupedRules  -- ^ Rules grouped by category.
-  -> [CF.Cat]
-    -- ^ May contain the same category with different precedence levels!
-extractEntrypoints pragmas (GroupedRules rulemap)
-  | null res  = Set.toList $ Set.fromList
-    $ map (removePrecedenceFromCat . nontoken2cat) $ Map.keys rulemap
-  | otherwise = res
-  where
-    res = Set.toList $ Set.fromList $ concat
-      [ map (removePrecedenceFromCat . CF.wpThing) cats
-      | CF.EntryPoints cats <- pragmas]
-
 -- | A collection of commonly used functions that all depend on the options.
 data BisonUtils = BisonUtils
   { inPackage            :: !Bool
