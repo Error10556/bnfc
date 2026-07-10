@@ -356,7 +356,7 @@ cppShowString s =
               if other < 0
               then 256 + fromIntegral other :: Int
               else fromIntegral other :: Int
-          in pad3 (showOct code "")
+          in '\\' : pad3 (showOct code "")
     pad3 s = replicate (3 - length s) '0' ++ s
 
 ------------------------------------------------------------------------
