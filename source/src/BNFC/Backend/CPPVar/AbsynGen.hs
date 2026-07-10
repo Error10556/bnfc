@@ -933,15 +933,24 @@ ruleDef r = let
 declareFunctions ::
      [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
   -> Doc
-declareFunctions pragmas = text "// User-defined functions"
-  $++$ vcatSpaced [declareFunction def | CF.FunDef def <- pragmas]
+declareFunctions pragmas =
+  entitleUserFunctions [declareFunction def | CF.FunDef def <- pragmas]
 
 -- | Generates user function implementations.
 translateFunctions ::
      [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
   -> Doc
-translateFunctions pragmas = text "// User-defined functions"
-  $++$ vcatSpaced [translateFunction def | CF.FunDef def <- pragmas]
+translateFunctions pragmas =
+  entitleUserFunctions [translateFunction def | CF.FunDef def <- pragmas]
+
+-- | Concatenates the function 'Doc's and prepends a header if the list is
+-- not empty.
+entitleUserFunctions ::
+     [Doc]  -- ^ Function declarations or definitions.
+  -> Doc    -- ^ Entitled file segment.
+entitleUserFunctions = \case
+    []       -> empty
+    nonempty -> text "// User-defined functions" $++$ vcatSpaced nonempty
 
 -- | Generates the header declaration for one user-defined function.
 declareFunction ::
