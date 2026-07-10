@@ -48,7 +48,7 @@ spec = do
 
     test "[\\x5e\\xff]" $ RX.byteset ['^', '\xff']
 
-    test "\\0\\x01\\x02\\a\\b\\t\\n"
+    test "\\x00\\x01\\x02\\a\\b\\t\\n"
       $ RX.flexConcat $ map RX.onebyte "\x00\x01\x02\x07\x08\x09\x0a"
 
     test "a\"\"*(a\"\")*"
@@ -108,7 +108,7 @@ spec = do
         `shouldBe`
         (normal
         ++ foldr (\ch tail -> '\\' : ch : tail) [] needescape
-        ++ "\\0\\a\\b\\t\\n\\v\\f\\r"
+        ++ "\\x00\\a\\b\\t\\n\\v\\f\\r"
         ++ concatMap (("\\x"++) . pad2 . flip showHex "") other)
 
   describe "byte2char in charclass context" $ do
@@ -123,7 +123,7 @@ spec = do
         (map fromIntegral $ ordnormal ++ special ++ other)
         `shouldBe`
         (normal
-        ++ "\\0\\a\\b\\t\\n\\v\\f\\r"
+        ++ "\\x00\\a\\b\\t\\n\\v\\f\\r"
         ++ concatMap (("\\x"++) . pad2 . flip showHex "") other)
 
   describe "Conversion from RegexMinus" $ do

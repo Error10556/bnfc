@@ -1050,13 +1050,16 @@ translateFunction def =
             CF.ListT _    -> callWrap
             CF.BaseT typename -> \ fname ->
               if isClassLabel fname
-              then callWrap typename . callWrap fname
-              else callWrap ("make_" ++ fname)
+              then
+                if typename /= fname  -- equal for custom tokens
+                then callWrap typename . callWrap fname  -- variant(label(...))
+                else callWrap fname  -- customToken(...)
+              else callWrap ("make_" ++ fname)  -- function
       CF.Var      name -> callWrap "std::move" $ text   name
       CF.LitInt    val -> callWrap "Integer"   $ text $ show   val
       CF.LitDouble val -> callWrap "Double"    $ text $ show   val
       CF.LitChar   val -> callWrap "Char"      $ text $ show $ ord val
-      CF.LitString val -> callWrap "String"    $ text $ show   val
+      CF.LitString val -> text $ cppShowString val
 
     callWrap fname = (text (fname ++ "(") <> ) . ( <> text ")")
 

@@ -37,21 +37,28 @@ module BNFC.Backend.CPPVar.CPPUtil
   , nontokenCatNameNoCoerc
   , nontokenCatNameWithCoerc
   , nontokenClassCatName
+
+    -- * UTF-8
+  , utf8encode
+  , cppShowString
   ) where
 
 -- Language imports
 import Prelude hiding ((<>))
 import Data.List (sort)
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, chr, ord)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
+import Data.Bits
+import Data.Int (Int8)
 
 import Text.PrettyPrint (Doc, ($+$), text, isEmpty, empty)
 
 -- BNFC imports
 import qualified BNFC.Options as Options
 import qualified BNFC.CF as CF
+import Numeric (showOct)
 
 ------------------------------------------------------------------------
 -- * C++ files.
@@ -281,6 +288,80 @@ nontokenClassCatName :: NontokenClassCategory -> String
 nontokenClassCatName = \case
   NontokenClass_Cat     n       -> normalizeCPPName n
   NontokenClass_ListCat elemCat -> "List" ++ catNameWithCoerc elemCat
+
+------------------------------------------------------------------------
+-- * UTF-8.
+------------------------------------------------------------------------
+
+-- | Encodes a (unicode) character into a list of bytes in the UTF-8 encoding.
+--
+-- See @man 7 utf-8@.
+utf8encode :: Int -> [Int8]
+utf8encode = map fromIntegral . helper
+  where
+    helper c
+      | c < 0          = error "Negative char"
+      | c <= 0x7f      = [c]
+      | c <= 0x7ff     = [0xc0 + shiftR6 1 c, 0x80 + (c .&. 0x3F)]
+      | c <= 0xffff    =
+        [0xe0 + shiftR6 2 c, 0x80 + shiftR6 1 c, 0x80 + (c .&. 0x3f)]
+      | c <= 0x1fffff  =
+        [ 0xf0 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+      | c <= 0x3ffffff =
+        [ 0xf8 + shiftR6 4 c
+        , 0x80 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+      | otherwise      =
+        [ 0xfc + shiftR6 5 c
+        , 0x80 + shiftR6 4 c
+        , 0x80 + shiftR6 3 c
+        , 0x80 + shiftR6 2 c
+        , 0x80 + shiftR6 1 c
+        , 0x80 + (c .&. 0x3f)
+        ]
+      where
+        shiftR6 n c = (c `shiftR` (6 * n)) .&. 0x3f
+
+-- | A string literal in C++ with the given value (encoded in UTF-8).
+cppShowString ::
+     String  -- ^ The value.
+  -> String  -- ^ The representation in C++ in UTF-8.
+cppShowString s =
+  '"' : (concatMap reprChar (concatMap (utf8encode . ord) s) ++ "\"")
+  where
+    reprChar :: Int8 -> String
+    reprChar = \case
+      7  -> "\\a"
+      8  -> "\\b"
+      9  -> "\\t"
+      10 -> "\\n"
+      11 -> "\\v"
+      12 -> "\\f"
+      13 -> "\\r"
+      34 -> "\\\""
+      92 -> "\\\\"
+      other ->
+        if 32 <= other && other < 127
+        then [chr $ fromIntegral other]
+        else
+          let
+            code =
+              if other < 0
+              then 256 + fromIntegral other :: Int
+              else fromIntegral other :: Int
+          in pad3 (showOct code "")
+    pad3 s = replicate (3 - length s) '0' ++ s
+
+------------------------------------------------------------------------
+-- * Utility.
+------------------------------------------------------------------------
 
 -- | Returns a (deduplicated) list of elements that occur more than once in the
 -- given list. \( O(n \log n) \).

@@ -43,7 +43,6 @@ module BNFC.Backend.CPPVar.FlexRegex
 import Prelude hiding ((<>))
 import Data.Char
 import Numeric
-import Data.Bits
 import Data.Either
 import Data.List (delete, partition)
 import Data.Int (Int8)
@@ -56,6 +55,8 @@ import Text.PrettyPrint (text)
 import qualified BNFC.Abs
 import BNFC.PrettyPrint ((<>), Pretty (pretty, prettyPrec))
 import qualified BNFC.RegexMinus as Minus
+
+import BNFC.Backend.CPPVar.CPPUtil (utf8encode)
 
 ------------------------------------------------------------------------
 -- * The FlexRegex data structure and its smart constructors.
@@ -188,7 +189,6 @@ byte2char ::
   -> Int8  -- ^ The character code.
   -> String
 byte2char isInCharclass byte
-  | byte == 0  = "\\0"
   | byte == 7  = "\\a"  -- bell/alarm
   | byte == 8  = "\\b"  -- backspace
   | byte == 12 = "\\f" -- form feed
@@ -343,42 +343,6 @@ flexRegexPrecedence = \case
   Plus     _   -> precedencePlus
   Concat   _ _ -> precedenceConcat
   Or       _ _ -> precedenceOr
-
--- | Encodes a (unicode) character into a list of bytes in the UTF-8 encoding.
---
--- See @man 7 utf-8@.
-utf8encode :: Int -> [Int8]
-utf8encode = map fromIntegral . helper
-  where
-    helper c
-      | c < 0          = error "Negative char"
-      | c <= 0x7f      = [c]
-      | c <= 0x7ff     = [0xc0 + shiftR6 1 c, 0x80 + (c .&. 0x3F)]
-      | c <= 0xffff    =
-        [0xe0 + shiftR6 2 c, 0x80 + shiftR6 1 c, 0x80 + (c .&. 0x3f)]
-      | c <= 0x1fffff  =
-        [ 0xf0 + shiftR6 3 c
-        , 0x80 + shiftR6 2 c
-        , 0x80 + shiftR6 1 c
-        , 0x80 + (c .&. 0x3f)
-        ]
-      | c <= 0x3ffffff =
-        [ 0xf8 + shiftR6 4 c
-        , 0x80 + shiftR6 3 c
-        , 0x80 + shiftR6 2 c
-        , 0x80 + shiftR6 1 c
-        , 0x80 + (c .&. 0x3f)
-        ]
-      | otherwise      =
-        [ 0xfc + shiftR6 5 c
-        , 0x80 + shiftR6 4 c
-        , 0x80 + shiftR6 3 c
-        , 0x80 + shiftR6 2 c
-        , 0x80 + shiftR6 1 c
-        , 0x80 + (c .&. 0x3f)
-        ]
-      where
-        shiftR6 n c = (c `shiftR` (6 * n)) .&. 0x3f
 
 ------------------------------------------------------------------------
 -- * Conversions.
