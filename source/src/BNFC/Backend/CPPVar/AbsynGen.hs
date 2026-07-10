@@ -652,7 +652,7 @@ headerTokens ::
   -> StructWithReflection
 headerTokens lits pragmas = StructWithReflection
   { structWithReflection_struct     = vcatSpaced structs
-  , structWithReflection_reflection = vcatSpaced reflections
+  , structWithReflection_reflection = foldr ($+$) empty reflections
   }
   where
     litTokens  = map makeLitToken lits
@@ -730,7 +730,7 @@ defineAllClasses storeListItemsBy decls = foldr (\ decl code ->
       , absynNodeCode_implementation = rimpl
       }) = AbsynNodeCode
         { absynNodeCode_declaration    = ldecl $++$ rdecl
-        , absynNodeCode_reflection     = lrefl $++$ rrefl
+        , absynNodeCode_reflection     = lrefl $+$ rrefl
         , absynNodeCode_implementation = limpl $++$ rimpl
         }
 
