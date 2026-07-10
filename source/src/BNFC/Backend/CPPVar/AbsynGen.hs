@@ -881,10 +881,11 @@ ruleDef r = let
     name = CF.funName r
     (indexedNames, members) = unzip $ fieldNames $ CF.rhsRule r
     storageTypes = map storageType' members
+    normalTypes = map cat2typeName members
     constructorSignatureOrEmpty
       | null members = empty
-      | otherwise = text $ name ++ "("
-        ++ intercalate ", " [catNameNoCoerc c ++ "&&" | c <- members]
+      | otherwise    = text $ name ++ "("
+        ++ intercalate ", " (map ( ++ "&&") normalTypes)
         ++ ");"
     headerClass = linesToText
       [ "class " ++ name ++ " {"
@@ -909,25 +910,27 @@ ruleDef r = let
     -- | Formats field initializers.
     ctorInitializers :: [String] -> Doc
     ctorInitializers = nest 4 . \case
-      [] -> empty
+      []           -> empty
       first : rest -> foldr ($+$) empty
         $ text (": " ++ first) : map (text . (", " ++)) rest
 
     cloneValue storageCat value
       | isPointerType' storageCat =
-        "ClonePtr<" ++ catNameNoCoerc storageCat ++ ">(" ++ value ++ ")"
+        "ClonePtr<" ++ cat2typeName storageCat ++ ">(" ++ value ++ ")"
       | otherwise = value
     moveValue storageCat value
       | isPointerType' storageCat =
-        "std::make_unique<" ++ catNameNoCoerc storageCat
+        "std::make_unique<" ++ cat2typeName storageCat
           ++ ">(std::move(" ++ value ++ "))"
       | otherwise = "std::move(" ++ value ++ ")"
 
-    copyCtor = text
+    copyCtor =
+      (text
       (name ++ "::" ++ name ++ "(const " ++ name ++ "& other [[maybe_unused]])")
       $+$ ctorInitializers
         [name ++ "(" ++ cloneValue cat ("other." ++ name) ++ ")"
-        | (name, cat) <- zip indexedNames members] <> text " {}"
+        | (name, cat) <- zip indexedNames members])
+      <> text " {}"
     copyAsg = text (name ++ "& " ++ name
              ++ "::operator=(const " ++ name ++ "& other [[maybe_unused]]) {")
       $+$ nest 4 (linesToText (
@@ -937,7 +940,7 @@ ruleDef r = let
     ruleCtorOrEmpty
       | null members = empty
       | otherwise = text (name ++ "::" ++ name ++ "(" ++ intercalate ", "
-          [catNameNoCoerc cat ++ "&& _" ++ show i
+          [cat2typeName cat ++ "&& _" ++ show i
           | (cat, i :: Int) <- zip members [1..]] ++ ")")
         $+$ ctorInitializers
           [name ++ "(" ++ moveValue cat ('_' : show i) ++ ")"
@@ -956,16 +959,36 @@ ruleDef r = let
     , absynNodeCode_implementation = impl
     }
   where
+    cat2typeName :: CF.Cat -> String
+    cat2typeName cat =
+      maybeElaborateType (catNameNoCoerc cat) $ isClassType cat
     storageType' :: CF.Cat -> String
-    storageType' = \case
-      lst@(CF.ListCat _) -> catNameNoCoerc lst
-      CF.TokenCat s      -> s
-      other -> "std::unique_ptr<" ++ catNameNoCoerc other ++ ">"
+    storageType' cat
+      | isPointerType' cat = "std::unique_ptr<" ++ typename ++ ">"
+      | otherwise          = typename
+      where
+        typename = cat2typeName cat
     isPointerType' :: CF.Cat -> Bool
     isPointerType' = \case
       CF.CoercCat _ _ -> True
       CF.Cat      _   -> True
       _               -> False
+    -- | If the type name contains an underscore, we want to be safe and specify
+    -- that it is a class/struct and definitely not a different field.
+    maybeElaborateType ::
+         String  -- ^ Storage type name.
+      -> Bool    -- ^ Is it a class? (As opposed to a struct).
+      -> String  -- ^ The (possibly elaborated) type name.
+    maybeElaborateType storageTypeName isClass
+      | '_' `elem` storageTypeName =
+        if isClass
+        then "class " ++ storageTypeName
+        else "struct " ++ storageTypeName
+      | otherwise = storageTypeName
+    isClassType :: CF.Cat -> Bool
+    isClassType = \case
+      CF.TokenCat _ -> False
+      _             -> True
 
 ------------------------------------------------------------------------
 -- * User-defined functions.
