@@ -466,7 +466,7 @@ codeSection utils opts entrypoints =
   , "    Parser parser(scanner.FlexScanner(), &res);"
   , "    parser.parse();"
   , "    if (!res) return {Parser::syntax_error(\"\")};"
-  , "    return *res;"
+  , "    return std::move(*res);"
   , "}"
   , ""
   , "ParseResultOrError Parse(FILE* file) {"
