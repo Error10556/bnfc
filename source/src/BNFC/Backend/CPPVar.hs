@@ -93,8 +93,8 @@ makeCppVar opts (CFG
       { compiledLexer_flexGrammar        = flexFile
       , compiledLexer_implicitTokenNames = implicitTokenNames
       } = FlexGen.makeFlex opts cfLiterals cfTerminals cfPragmas
-    bisonFile = BisonGen.makeBison
-      opts implicitTokenNames cfLiterals cfPragmas groupedRules listItemStorage
+    bisonFile = BisonGen.makeBison opts implicitTokenNames cfLiterals
+      cfPragmas groupedRules listItemStorage entrypts
     printables = PrinterUtils.getPrintableSymbols
       cfLiterals cfPragmas mergedGroupedRules
     CPPUtil.CPPHeaderSourcePair

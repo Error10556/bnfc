@@ -18,7 +18,6 @@ module BNFC.Backend.CPPVar.BisonGen
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
 
 import Text.PrettyPrint
 
@@ -45,9 +44,10 @@ makeBison ::
   -> [CF.Pragma]            -- ^ Grammar pragmas (contain user-defined tokens).
   -> GroupedRules           -- ^ Rules grouped by the category.
   -> AbsynGen.ListItemStorage  -- ^ How to access list elements.
+  -> [CF.Cat]               -- ^ Entrypoints.
   -> Doc
 makeBison opts implicitTokenNames literals pragmas
-    groupedRules@(GroupedRules rulemap) storeListItemsBy =
+    groupedRules@(GroupedRules rulemap) storeListItemsBy entrypoints =
   bisonHeader opts
   $++$ tokenDefs implicitTokenNames literals pragmas
   $++$ codeRequires utils entrypoints
@@ -63,7 +63,6 @@ makeBison opts implicitTokenNames literals pragmas
   $++$ codeSection utils opts entrypoints
   where
     utils       = newBisonUtils opts
-    entrypoints = extractEntrypoints pragmas groupedRules
 
 ------------------------------------------------------------------------
 -- * General utility.
