@@ -58,7 +58,7 @@ makeBison opts implicitTokenNames literals pragmas
   $++$ codeLex utils
   $++$ text "%start __start__"
   $++$ text "%%"
-  $++$ startRules entrypoints
+  $++$ startRules entrypoints groupedRules
   $++$ vcatSpaced (map (uncurry $ category implicitTokenNames storeListItemsBy)
       $ Map.toList rulemap)
   $++$ text "%%"
@@ -328,13 +328,30 @@ sentFormCatToBisonName = \case
 
 -- | Generates the entrypoint alternatives as grammar rules.
 startRules ::
-     [CF.Cat]  -- ^ Grammar entrypoints.
+     [CF.Cat]      -- ^ Grammar entrypoints.
+  -> GroupedRules  -- ^ Grammar description (with coercion levels).
   -> Doc
-startRules entrypoints =
+-- The grammar may not have a coercionless rule for an entrypoint.
+-- So we have to find the minimal category with the same name as in the
+-- entrypoint.
+startRules entrypoints (GroupedRules rulemap) =
   text "__start__" $+$ bisonRules (map rule entrypoints)
   where
-    rule cat = sentFormCatToBisonName cat
+    rule cat = sentFormCatToBisonName (findProperCoerc cat)
       ++ " YYEOF { *result = {{ParseResultVariant(std::move($1))}}; }"
+    findProperCoerc :: CF.Cat -> CF.Cat
+    findProperCoerc = \case
+      cat@(CF.Cat name) -> case name `Map.lookup` smallestCoercions of
+        Nothing   -> cat
+        Just (-1) -> cat
+        Just n    -> CF.CoercCat name n
+      other             -> other
+    smallestCoercions :: Map String Integer  -- ^ -1 = coercionless
+    smallestCoercions = foldr (\case
+        Nontoken_Cat name            -> Map.insert name (-1)
+        Nontoken_CoercCat name coerc -> Map.insert name coerc
+        Nontoken_ListCat _           -> id
+      ) Map.empty $ Map.keys rulemap
 
 -- | Generates all Bison rules for a category.
 category ::
