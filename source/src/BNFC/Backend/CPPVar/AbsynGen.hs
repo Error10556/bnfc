@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes #-}
 {-|
   Module      : BNFC.Backend.CPPVar.AbsynGen
   Description : Abstract syntax node classes generator.
@@ -34,6 +35,7 @@ import Data.Array (Array, (!))
 import Data.List (intercalate, sort)
 import qualified Data.Foldable as Foldable
 import qualified Data.Either as Either
+import Data.String.QQ (s)
 
 import Text.PrettyPrint (Doc, text, ($+$), empty, nest, (<>), punctuate, comma)
 
@@ -55,11 +57,12 @@ makeAbsyn ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> [CF.Literal]           -- ^ Used built-in tokens.
   -> [CF.Pragma]            -- ^ User-defined pragmas (contain custom tokens).
+  -> [CF.Cat]               -- ^ Parser entrypoints.
   -> MergedGroupedRules
     -- ^ Rule labels in the grammar description,
     -- grouped by the grammar category.
   -> GeneratedAbsyn
-makeAbsyn opts literals pragmas mergedGroupedRules = GeneratedAbsyn
+makeAbsyn opts literals pragmas entrypts mergedGroupedRules = GeneratedAbsyn
   { absynCode = CPPHeaderSourcePair
     { cppHeaderText = hpp
     , cppSourceText = cpp
@@ -82,7 +85,10 @@ makeAbsyn opts literals pragmas mergedGroupedRules = GeneratedAbsyn
     hppFunctions = declareFunctions pragmas
     cppFunctions = translateFunctions pragmas
     hppMain = hppTokenStructs $++$ hppClassDecls $++$ hppFunctions
+    entrypointRefl = linesToText
+      ["ENTRYPOINT(" ++ catNameNoCoerc cat ++ ");" | cat <- entrypts]
     hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppClassRefl
+      $++$ entrypointRefl $++$ reflectionUndefs
     hpp = headerHead $++$ maybeNamespace
       (hppMain $++$ wrapNamespace "reflection" hppRefl)
     cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
@@ -446,28 +452,63 @@ headerHead = linesToText
 
 -- | Declaration of templates in the @reflection@ namespace.
 reflectionTemplates :: Doc
-reflectionTemplates = linesToText
-  [ "template<class T> struct CoercionLevel_t {};"
-  , "template<class T> constexpr int CoercionLevel = CoercionLevel_t<T>::value;"
-  , ""
-  , "template<class T> struct SyntaxNodeName_t {};"
-  , "template<class T>"
-  , "constexpr const char* SyntaxNodeName = SyntaxNodeName_t<T>::value;"
-  ]
+reflectionTemplates = unlinesToText [s|
+template<class T> struct IsTokenStruct_t
+{ static constexpr bool value = false; };
+template<class T>
+constexpr const bool IsTokenStruct = IsTokenStruct_t<T>::value;
 
--- | The text of a @CoercionLevel_t@ specialization.
-rawCoercionSpec :: String -> Integer -> Doc
-rawCoercionSpec name coercion = linesToText
-  [ "template<> struct CoercionLevel_t<" ++ name ++ ">"
-  , "{ static constexpr int value = " ++ show coercion ++ "; };"
-  ]
+template<class T> struct IsCategoryClass_t
+{ static constexpr bool value = false; };
+template<class T>
+constexpr const bool IsCategoryClass = IsCategoryClass_t<T>::value;
 
--- | The text of a @SyntaxNodeName_t@ specialization.
-rawNodeNameSpec :: String -> Doc
-rawNodeNameSpec name = linesToText
-  [ "template<> struct SyntaxNodeName_t<" ++ name ++ ">"
-  , "{ static constexpr const char* value = \"" ++ name ++ "\"; };"
-  ]
+template<class T> struct IsLabelClass_t
+{ static constexpr bool value = false; };
+template<class T>
+constexpr const bool IsLabelClass = IsLabelClass_t<T>::value;
+
+template<class T> struct IsParserEntrypoint_t
+{ static constexpr bool value = false; };
+template<class T>
+constexpr const bool IsParserEntrypoint = IsParserEntrypoint_t<T>::value;
+
+template<class T> struct CoercionLevel_t {};
+template<class T> constexpr int CoercionLevel = CoercionLevel_t<T>::value;
+
+template<class T> struct SyntaxNodeName_t {};
+template<class T>
+constexpr const char* SyntaxNodeName = SyntaxNodeName_t<T>::value;
+
+#define REFL_KINDNAME(kind, _t) Is##kind##_t
+
+#define REFL_NOCOERC(type, kind) \
+template<> struct REFL_KINDNAME(kind, _t)<type> \
+{ static constexpr bool value = true; }; \
+template<> struct SyntaxNodeName_t<type> \
+{ static constexpr const char* value = #type; }
+
+#define REFL(type, kind, coerc) \
+REFL_NOCOERC(type, kind); \
+template<> struct CoercionLevel_t<type> \
+{ static constexpr int value = coerc; } \
+
+#define REFL_VAR(type) REFL_NOCOERC(type, CategoryClass)
+
+#define ENTRYPOINT(type) \
+template<> struct IsParserEntrypoint_t<type> \
+{ static constexpr bool value = true; } \
+|]
+
+-- | Cleanup of reflection macros.
+reflectionUndefs :: Doc
+reflectionUndefs = unlinesToText [s|
+#undef ENTRYPOINT
+#undef REFL_VAR
+#undef REFL
+#undef REFL_NOCOERC
+#undef REFL_KINDNAME
+|]
 
 -- | Static utility function: clones the contents of a @unique_ptr@,
 -- putting the clone into another @unique_ptr@.
@@ -532,7 +573,7 @@ tokenStructWithRefConstructorsHeader name storageType = StructWithReflection
       , name ++ "& operator=(" ++ storageType ++ "&&);"
       ]) $+$ text "};"
   , structWithReflection_reflection =
-    rawCoercionSpec name 0 $+$ rawNodeNameSpec name
+    text $ "REFL(" ++ name ++ ", TokenStruct, 0);"
   }
 
 -- | Generates an implementation for a token structure with constructors and
@@ -582,7 +623,7 @@ tokenStructHeader name storageType = StructWithReflection
       , name ++ "& operator=(" ++ storageType ++ ");"
       ]) $+$ text "};"
   , structWithReflection_reflection =
-    rawCoercionSpec name 0 $+$ rawNodeNameSpec name
+    text $ "REFL(" ++ name ++ ", TokenStruct, 0);"
   }
 
 -- | Generates an implementation for a token structure with a by-value
@@ -702,7 +743,7 @@ listDef storeBy elemCat = AbsynNodeCode
   { absynNodeCode_declaration = makeListDecl
 
   , absynNodeCode_reflection     =
-      rawCoercionSpec name 0 $+$ rawNodeNameSpec name
+    text $ "REFL(" ++ name ++ ", CategoryClass, 0);"
 
   , absynNodeCode_implementation = case storeBy of
     StoreByValue   -> empty
@@ -807,7 +848,7 @@ variantDef name variants = AbsynNodeCode
   { absynNodeCode_declaration    = case variants of
     [singleVariant] -> classTop $+$ singleVariantBody singleVariant
     _               -> classTop $+$ text "};"
-  , absynNodeCode_reflection     = rawNodeNameSpec name
+  , absynNodeCode_reflection     = text $ "REFL_VAR(" ++ name ++ ");"
   , absynNodeCode_implementation = empty
   }
   where
@@ -862,7 +903,8 @@ ruleDef r = let
           (zip storageTypes indexedNames)))
       $+$ text "};"
 
-    headerRefls = rawCoercionSpec name (CF.precRule r) $+$ rawNodeNameSpec name
+    headerRefls = text
+      $ "REFL(" ++ name ++ ", LabelClass, " ++ show (CF.precRule r) ++ ");"
 
     -- | Formats field initializers.
     ctorInitializers :: [String] -> Doc

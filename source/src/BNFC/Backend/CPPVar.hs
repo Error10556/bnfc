@@ -79,6 +79,7 @@ makeCppVar opts (CFG
   let
     groupedRules       = CPPUtil.groupRules cfRules
     mergedGroupedRules = CPPUtil.mergeCoercCats groupedRules
+    entrypts           = CPPUtil.extractEntrypoints cfPragmas groupedRules
     cfTerminals = cfSymbols ++ cfKeywords
     AbsynGen.GeneratedAbsyn
       { absynCode = CPPUtil.CPPHeaderSourcePair
@@ -86,7 +87,8 @@ makeCppVar opts (CFG
         , cppSourceText = absynCpp
         }
       , absynListItemStorage = listItemStorage
-      } = AbsynGen.makeAbsyn opts cfLiterals cfPragmas mergedGroupedRules
+      } = AbsynGen.makeAbsyn opts cfLiterals cfPragmas
+        entrypts mergedGroupedRules
     FlexGen.CompiledLexer
       { compiledLexer_flexGrammar        = flexFile
       , compiledLexer_implicitTokenNames = implicitTokenNames
