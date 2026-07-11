@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
         cout << R"%(
 Options:
   -h --help     Display this message.
-  -p --pretty   Pretty-print the abstract syntax tree.
+  -p --pretty   Pretty-print the syntax tree (using ContextFreePrettyPrinter).
   -t --tree     Print the abstract syntax tree like a tree.
   -H --haskell  Print the abstract syntax tree as a Haskell expression.
   -s --systest  For use in BNFC system tests. Overrides other options.
