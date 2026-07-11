@@ -85,11 +85,11 @@ makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
 
 public:
     ContextFreePrettyPrinter(std::ostream&, unsigned int indent = 0,
-                  int coercionLevel = 0);
+                             int coercionLevel = 0);
     ContextFreePrettyPrinter Indented(unsigned int plusIndent = 4,
-                           int coercionLevel = 0) const;
+                                      int coercionLevel = 0) const;
     ContextFreePrettyPrinter Dedented(unsigned int minusIndent = 4,
-                           int coercionLevel = 0) const;
+                                      int coercionLevel = 0) const;
     ContextFreePrettyPrinter WithCoercionLevel(int level) const;
     void NewLine() const;
 |])
