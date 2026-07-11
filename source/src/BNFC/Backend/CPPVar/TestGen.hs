@@ -37,6 +37,7 @@ makeTest opts = let
 #include <vector>
 
 #include "HaskellPrinter.hpp"
+#include "ClassicPrettyPrinter.hpp"
 #include "ContextFreePrettyPrinter.hpp"
 #include "SyntaxPrinter.hpp"
 |]
@@ -45,8 +46,8 @@ makeTest opts = let
 #include "PatternMatching.hpp"
 using namespace std;
 
-bool help = false, pretty = false, tree = false, haskell = false,
-    systest = false;
+bool help = false, pretty = false, cpretty = false, tree = false,
+     haskell = false, systest = false;
 
 int main(int argc, char** argv) {
     if (!argc) {
@@ -77,6 +78,8 @@ int main(int argc, char** argv) {
                 help = true;
             else if (strcmp(arg + 2, "pretty") == 0)
                 pretty = true;
+            else if (strcmp(arg + 2, "cpretty") == 0)
+                cpretty = true;
             else if (strcmp(arg + 2, "tree") == 0)
                 tree = true;
             else if (strcmp(arg + 2, "haskell") == 0)
@@ -96,6 +99,9 @@ int main(int argc, char** argv) {
                     break;
                 case 'p':
                     pretty = true;
+                    break;
+                case 'P':
+                    cpretty = true;
                     break;
                 case 't':
                     tree = true;
@@ -121,10 +127,11 @@ int main(int argc, char** argv) {
 Options:
   -h --help     Display this message.
   -p --pretty   Pretty-print the syntax tree (using ContextFreePrettyPrinter).
+  -P --cpretty  Pretty-print the syntax tree (using ClassicPrettyPrinter).
   -t --tree     Print the abstract syntax tree like a tree.
   -H --haskell  Print the abstract syntax tree as a Haskell expression.
   -s --systest  For use in BNFC system tests. Overrides other options.
-     --         Treat  the remaining arguments as files.
+     --         Treat the remaining arguments as files.
 
 If no files are specified of if FILE is -, read standard input.
 
@@ -166,7 +173,7 @@ if every file is parsed successfully, the exit code will be 0.
     ++ "[Abstract Syntax]\\n\\n\";"
   , "                    ast | " ++ ns ++ "HaskellPrinter(cout);"
   , "                    cout << \"\\n\\n[Linearized tree]\\n\\n\";"
-  , "                    ast | " ++ ns ++ "ContextFreePrettyPrinter(cout);"
+  , "                    ast | " ++ ns ++ "ClassicPrettyPrinter(cout, 2);"
   , "                    cout << endl;"
   , "                    return;"
   , "                }"
@@ -178,6 +185,11 @@ if every file is parsed successfully, the exit code will be 0.
   , "                }"
   , "                if (pretty) {"
   , "                    ast | " ++ ns ++ "ContextFreePrettyPrinter(cout);"
+  , "                    cout << \"\\n\\n\";"
+  , "                    printed = true;"
+  , "                }"
+  , "                if (cpretty) {"
+  , "                    ast | " ++ ns ++ "ClassicPrettyPrinter(cout, 2);"
   , "                    cout << \"\\n\\n\";"
   , "                    printed = true;"
   , "                }"
