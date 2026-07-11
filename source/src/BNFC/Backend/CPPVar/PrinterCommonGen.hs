@@ -50,14 +50,14 @@ makePrinterCommonHpp ::
 makePrinterCommonHpp opts = linesToText
   [ "#pragma once"
   , "#include <ostream>"
-  , "#include <string>"
+  , "#include <string_view>"
   ] $++$ wrapPackage opts (unlinesToText [s|
 void PrintEscapedCharRaw(std::ostream& out, int32_t ch);
 
 // As PrintEscapedCharRaw for each character,
 // but also escapes double quotes (").
 // Puts the string in double quotes.
-void PrintEscapedString(std::ostream& out, const std::string& s);
+void PrintEscapedString(std::ostream& out, std::string_view s);
 
 // As PrintEscapedCharRaw, but also escapes single quotes (').
 // Puts the character in single quotes.
@@ -73,7 +73,6 @@ makePrinterCommonCpp ::
 makePrinterCommonCpp opts = linesToText (lines $ [s|
 #include "PrinterCommon.hpp"
 #include <charconv>
-#include <string_view>
 #include <system_error>
 |]) $++$ wrapPackage opts (unlinesToText [s|
 void PrintEscapedCharRaw(std::ostream& out, int32_t ch) {
@@ -127,7 +126,7 @@ void PrintEscapedCharRaw(std::ostream& out, int32_t ch) {
     }
 }
 
-void PrintEscapedString(std::ostream& out, const std::string& s) {
+void PrintEscapedString(std::ostream& out, std::string_view s) {
     out << '"';
     for (char ch : s) {
         if (ch < 0)  // do not touch utf-8 non-ascii
