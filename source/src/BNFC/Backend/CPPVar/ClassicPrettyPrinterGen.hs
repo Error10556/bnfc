@@ -523,7 +523,7 @@ methodList listItemStorage (PrintableListDescription
       Nothing ->
         text "for (const auto& item : v) {"
         $+$ nest 4 (lcons'
-            $+$ text (putItem $ "*item")
+            $+$ text (putItem $ "item")
             $+$ mcons')
         $+$ text "}" $+$ cyclercons False
       Just (lsingle, _, rsingle) -> text "if (v.empty()) {"
