@@ -167,7 +167,7 @@ makePrinterHeaderFile className includes classtop printables packwrap =
   includes $++$ packwrap inNamespace
   where
     inNamespace =
-      text ("class " ++ className ++ "{")
+      text ("class " ++ className ++ " {")
       $+$ classtop
       $+$ visitMethods
       $+$ text "};"
