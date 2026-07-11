@@ -490,8 +490,8 @@ methodList listItemStorage (PrintableListDescription
           $+$ cyclercons True
         ) $+$ text "}"
         where
-          lsingle' = compileSepString lsingle
-          rsingle' = compileSepString rsingle
+          lsingle' = compileSepString (lsingle ++ [""])
+          rsingle' = compileSepString ("" : rsingle)
 
     itemprinter = text $ "PrettyPrinter itemprinter = WithCoercionLevel("
       ++ show itemcoerc ++ ");"
