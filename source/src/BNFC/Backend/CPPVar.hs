@@ -24,7 +24,7 @@ import qualified BNFC.Backend.CPPVar.BisonGen as BisonGen
 import qualified BNFC.Backend.CPPVar.PatternMatchingGen as PatternMatchingGen
 import qualified BNFC.Backend.CPPVar.PrinterUtils as PrinterUtils
 import qualified BNFC.Backend.CPPVar.SyntaxPrinterGen as SyntaxPrinterGen
-import qualified BNFC.Backend.CPPVar.PrettyPrinterGen as PrettyPrinterGen
+import qualified BNFC.Backend.CPPVar.CFPrettyPrinterGen as CFPrettyPrinterGen
 import qualified BNFC.Backend.CPPVar.HaskellPrinterGen as HaskellPrinterGen
 import qualified BNFC.Backend.CPPVar.TestGen as TestGen
 import qualified BNFC.Backend.CPPVar.PrinterCommonGen as PrinterCommonGen
@@ -104,7 +104,7 @@ makeCppVar opts (CFG
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = prettyHpp
       , cppSourceText = prettyCpp
-      } = PrettyPrinterGen.makePrettyPrinter opts printables listItemStorage
+      } = CFPrettyPrinterGen.makePrettyPrinter opts printables listItemStorage
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = haskellHpp
       , cppSourceText = haskellCpp
@@ -121,8 +121,8 @@ makeCppVar opts (CFG
     $ PrinterCommonGen.makePrinterCommonCpp opts
   mkfile SyntaxPrinterGen.syntaxPrinterHppFilename comment syntaxHpp
   mkfile SyntaxPrinterGen.syntaxPrinterCppFilename comment syntaxCpp
-  mkfile PrettyPrinterGen.prettyPrinterHppFilename comment prettyHpp
-  mkfile PrettyPrinterGen.prettyPrinterCppFilename comment prettyCpp
+  mkfile CFPrettyPrinterGen.prettyPrinterHppFilename comment prettyHpp
+  mkfile CFPrettyPrinterGen.prettyPrinterCppFilename comment prettyCpp
   mkfile HaskellPrinterGen.haskellPrinterHppFilename comment haskellHpp
   mkfile HaskellPrinterGen.haskellPrinterCppFilename comment haskellCpp
   mkfile TestGen.testFilename comment (TestGen.makeTest opts)

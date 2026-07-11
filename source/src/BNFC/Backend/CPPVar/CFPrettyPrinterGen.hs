@@ -1,13 +1,14 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 {-|
-  Module      : BNFC.Backend.CPPVar.PrettyPrinterGen
-  Description : Heuristic-driven pretty-printing of the abstract syntax tree.
+  Module      : BNFC.Backend.CPPVar.CFPrettyPrinterGen
+  Description : Heuristic-driven context-free
+                pretty-printing of the abstract syntax tree.
 
-  Heuristic-driven pretty-printing of the abstract syntax tree.
+  Heuristic-driven context-free pretty-printing of the abstract syntax tree.
 -}
 
-module BNFC.Backend.CPPVar.PrettyPrinterGen
+module BNFC.Backend.CPPVar.CFPrettyPrinterGen
   (
     -- * The entrypoint
     makePrettyPrinter
@@ -48,9 +49,10 @@ prettyPrinterCppFilename = prettyPrinterClassName ++ ".cpp"
 ------------------------------------------------------------------------
 
 prettyPrinterClassName :: String
-prettyPrinterClassName = "PrettyPrinter"
+prettyPrinterClassName = "ContextFreePrettyPrinter"
 
--- | Generates the @PrettyPrinter@ class (declaration and implementation).
+-- | Generates the @ContextFreePrettyPrinter@ class
+-- (declaration and implementation).
 makePrettyPrinter ::
      BNFC.Options.SharedOptions  -- ^ BNFC invokation options.
   -> [PrintableSymbol]           -- ^ The list of types to make methods for.
@@ -64,8 +66,8 @@ makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
     packwrap = wrapPackage opts
 
     hpp = makePrinterHeaderFile prettyPrinterClassName (unlinesToText [s|
-// The default pretty printer does not suit all languages.
-// See PrettyPrinter.cpp for details.
+// The default context-free pretty printer does not suit all languages and is
+// meant to be modified. See ContextFreePrettyPrinter.cpp for details.
 
 #pragma once
 #include <iostream>
@@ -78,23 +80,23 @@ makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
     int coercionLevel;
     void NewLine(unsigned int indent) const;
 
-    friend const PrettyPrinter& operator<<(const PrettyPrinter&,
-                                           std::string_view);
+    friend const ContextFreePrettyPrinter& operator<<(
+        const ContextFreePrettyPrinter&, std::string_view);
 
 public:
-    PrettyPrinter(std::ostream&, unsigned int indent = 0,
+    ContextFreePrettyPrinter(std::ostream&, unsigned int indent = 0,
                   int coercionLevel = 0);
-    PrettyPrinter Indented(unsigned int plusIndent = 4,
+    ContextFreePrettyPrinter Indented(unsigned int plusIndent = 4,
                            int coercionLevel = 0) const;
-    PrettyPrinter Dedented(unsigned int minusIndent = 4,
+    ContextFreePrettyPrinter Dedented(unsigned int minusIndent = 4,
                            int coercionLevel = 0) const;
-    PrettyPrinter WithCoercionLevel(int level) const;
+    ContextFreePrettyPrinter WithCoercionLevel(int level) const;
     void NewLine() const;
 |])
       printable packwrap
 
     cpp = disclaimer $++$ unlinesToText [s|
-#include "PrettyPrinter.hpp"
+#include "ContextFreePrettyPrinter.hpp"
 
 #include "PrinterCommon.hpp"
 |] $++$ packwrap
@@ -109,30 +111,44 @@ public:
 -- | A notice to the user about the limitations.
 disclaimer :: Doc
 disclaimer = unlinesToText [s|
-/**** Disclaimer ****
- * The default PrettyPrinter implementation makes a number of assumptions about
- * the target language.
- *
- * * All tokens are separated from each other by a space. The exceptions are:
- *   - commas ',' and semicolons ';', which are only separated from the right;
- *   - brackets '[]' and parentheses '()', which are not separated from the
- *     enclosed text;
- *   - tokens that start and/or end with whitespace, which are not separated on
- *     the whitespace side(s).
- *
- * * Curly braces '{}' (and only those) enclose an indented block. The
- *   indentation equals 4 spaces. The left curly brace causes one line break
- *   _after_ itself, the right one causes breaks _before and after_ itself. The
- *   right brace is not indented.
- *
- * * Semicolons ';' cause a line break after themselves.
- *
- * * Precedence is always resolved by enclosing a term in parentheses '()'.
- *
- * Since the above limitations likely make the pretty-printed code look far from
- * pretty, you are encouraged to _PATCH(1)_ this file with your own
- * implementations of some methods.
- */
+/********************************  Disclaimer  *********************************
+
+The ContextFreePrettyPrinter class attempts to implement pretty-printing while
+having as little internal state as possible, only depending on the indentation
+level and the expected precedence level of the printed syntax subtree. The
+minimal state should help the programmer modify the pretty-printer.
+
+The default ContextFreePrettyPrinter implementation tries to follow these rules:
+
+* All tokens are separated from each other by a space. The exceptions are:
+  - commas ',' and semicolons ';', which are only separated from the right;
+  - brackets '[]' and parentheses '()', which are not separated from the
+    enclosed text;
+  - tokens that start and/or end with whitespace, which are not separated on the
+    whitespace side(s);
+  - empty tokens prevent space-separation.
+
+* Curly braces '{}' (and only those) enclose an indented block. The indentation
+  is controlled by a global constant INDENT and equals 4 spaces by default. The
+  left curly brace causes one line break _after_ itself, the right one causes
+  breaks _before and after_ itself. The right brace is not indented.
+
+  NB: brace pairs are only detected within one syntax node. Braces without pairs
+  are treated like parentheses (not space-separated from what is inside).
+
+* Semicolons ';' cause a line break after themselves.
+
+* Precedence is always resolved by enclosing a term in parentheses '()'.
+
+Note that only tokens specified in the grammar as literal strings affect
+spacing, indentation, and line breaks in the generated implementation; tokens
+defined using pragmas do not.
+
+You are encouraged to _PATCH(1)_ this file with your own implementations of some
+methods. If that is unacceptable and the printed text is not pretty, try
+ClassicPrettyPrinter.
+
+*******************************************************************************/
 |]
 
 -- | Implementations of helper methods.
@@ -143,27 +159,28 @@ printerUtilImpl = unlinesToText [s|
 
 constexpr static const unsigned int INDENT [[maybe_unused]] = 4;
 
-PrettyPrinter::PrettyPrinter(std::ostream& out, unsigned int indent,
-                             int coercionLevel)
+ContextFreePrettyPrinter::ContextFreePrettyPrinter(
+    std::ostream& out, unsigned int indent, int coercionLevel)
     : out(out), indent(indent), coercionLevel(coercionLevel) {}
 
-void PrettyPrinter::NewLine(unsigned int indent) const {
+void ContextFreePrettyPrinter::NewLine(unsigned int indent) const {
     out << '\n' << std::string(indent, ' ');
 }
 
-void PrettyPrinter::NewLine() const { NewLine(indent); }
+void ContextFreePrettyPrinter::NewLine() const { NewLine(indent); }
 
-PrettyPrinter PrettyPrinter::WithCoercionLevel(int level) const {
+ContextFreePrettyPrinter
+    ContextFreePrettyPrinter::WithCoercionLevel(int level) const {
     return {out, indent, level};
 }
 
-PrettyPrinter PrettyPrinter::Indented(unsigned int plusIndent,
-                                      int coercionLevel) const {
+ContextFreePrettyPrinter ContextFreePrettyPrinter::Indented(
+    unsigned int plusIndent, int coercionLevel) const {
     return {out, indent + plusIndent, coercionLevel};
 }
 
-PrettyPrinter PrettyPrinter::Dedented(unsigned int minusIndent,
-                                      int coercionLevel) const {
+ContextFreePrettyPrinter ContextFreePrettyPrinter::Dedented(
+    unsigned int minusIndent, int coercionLevel) const {
     return {out, minusIndent > indent ? 0 : indent - minusIndent,
             coercionLevel};
 }
@@ -318,7 +335,7 @@ mergeStrs = map (\case
 -- | Method that pretty-prints an @Ident@.
 methodIdent :: Doc
 methodIdent = unlinesToText [s|
-void PrettyPrinter::operator()(const Ident& v) const {
+void ContextFreePrettyPrinter::operator()(const Ident& v) const {
     IF_BAD_COERC(Ident) out << '(';
     out << v.Value;
     IF_BAD_COERC(Ident) out << ')';
@@ -328,7 +345,7 @@ void PrettyPrinter::operator()(const Ident& v) const {
 -- | Method that pretty-prints a @String@ token.
 methodString :: Doc
 methodString = unlinesToText [s|
-void PrettyPrinter::operator()(const String& v) const {
+void ContextFreePrettyPrinter::operator()(const String& v) const {
     IF_BAD_COERC(String) out << '(';
     PrintEscapedString(out, v.Value);
     IF_BAD_COERC(String) out << ')';
@@ -338,7 +355,7 @@ void PrettyPrinter::operator()(const String& v) const {
 -- | Method that pretty-prints an @Integer@ token.
 methodInteger :: Doc
 methodInteger = unlinesToText [s|
-void PrettyPrinter::operator()(const Integer& v) const {
+void ContextFreePrettyPrinter::operator()(const Integer& v) const {
     IF_BAD_COERC(Integer) out << '(';
     out << v.Value;
     IF_BAD_COERC(Integer) out << ')';
@@ -348,7 +365,7 @@ void PrettyPrinter::operator()(const Integer& v) const {
 -- | Method that pretty-prints a @Double@ token.
 methodDouble :: Doc
 methodDouble = unlinesToText [s|
-void PrettyPrinter::operator()(const Double& v) const {
+void ContextFreePrettyPrinter::operator()(const Double& v) const {
     IF_BAD_COERC(Double) out << '(';
     PrintDouble(out, v.Value);
     IF_BAD_COERC(Double) out << ')';
@@ -358,7 +375,7 @@ void PrettyPrinter::operator()(const Double& v) const {
 -- | Method that pretty-prints a @Char@ token.
 methodChar :: Doc
 methodChar = unlinesToText [s|
-void PrettyPrinter::operator()(const Char& v) const {
+void ContextFreePrettyPrinter::operator()(const Char& v) const {
     IF_BAD_COERC(Char) out << '(';
     PrintEscapedChar(out, v.Value);
     IF_BAD_COERC(Char) out << ')';
@@ -370,7 +387,7 @@ methodCategory ::
      String  -- ^ The category name.
   -> Doc
 methodCategory name = linesToText
-  [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  [ "void ContextFreePrettyPrinter::operator()(const " ++ name ++ "& v) const {"
   , "    std::visit(*this, v);"
   , "}"
   ]
@@ -379,7 +396,7 @@ methodCategory name = linesToText
 -- grammar rule.
 methodFunctionRule :: CF.Rule -> Doc
 methodFunctionRule r = linesToText
-  [ "void PrettyPrinter::operator()(const " ++ name
+  [ "void ContextFreePrettyPrinter::operator()(const " ++ name
     ++ "& v [[maybe_unused]]) const {"
   , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
   ] $+$ nest 4 (fst $ helperTerm2doc 0 terms)
@@ -396,7 +413,7 @@ methodFunctionRule r = linesToText
     nestedTerm2doc lv terms =
       let (doc, uses) = helperTerm2doc lv terms
       in ((if uses
-            then text ("PrettyPrinter printer" ++ show lv ++ " = " ++
+            then text ("ContextFreePrettyPrinter printer" ++ show lv ++ " = " ++
               printerDotAtLv (lv - 1) ++ "Indented(INDENT);")
             else empty)
           $+$ doc
@@ -437,7 +454,7 @@ methodFunctionRule r = linesToText
 -- | Generates a method that prints a custom token.
 methodCustomToken :: String -> Doc
 methodCustomToken name = linesToText
-  [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  [ "void ContextFreePrettyPrinter::operator()(const " ++ name ++ "& v) const {"
   , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
   , "    out << v." ++ tokenStorageName name ++ ";"
   , "    IF_BAD_COERC(" ++ name ++ ") out << ')';"
@@ -457,7 +474,7 @@ methodList listItemStorage (PrintableListDescription
   , printListSingle    = single
   })
   = linesToText
-  [ "void PrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  [ "void ContextFreePrettyPrinter::operator()(const " ++ name ++ "& v) const {"
   , "    IF_BAD_COERC(" ++ name ++ ") out << '(';"
   ] $+$ nest 4 body $+$ linesToText
   [ "    IF_BAD_COERC(" ++ name ++ ") out << ')';"
@@ -493,7 +510,8 @@ methodList listItemStorage (PrintableListDescription
           lsingle' = compileSepString (lsingle ++ [""])
           rsingle' = compileSepString ("" : rsingle)
 
-    itemprinter = text $ "PrettyPrinter itemprinter = WithCoercionLevel("
+    itemprinter = text
+      $ "ContextFreePrettyPrinter itemprinter = WithCoercionLevel("
       ++ show itemcoerc ++ ");"
     compileSepString :: [String] -> Doc
     compileSepString strs =

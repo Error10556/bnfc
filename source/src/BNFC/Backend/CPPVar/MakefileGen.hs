@@ -1,7 +1,7 @@
 {-|
   Module      : BNFC.Backend.CPPVar.MakefileGen
   Description : Makefile generator.
-  
+
   Makefile generator.
 -}
 
@@ -59,7 +59,7 @@ makeHelpTable minWidth rows =
 -- | Generates a table of available targets with descriptions.
 -- The table will be at least 80 characters wide.
 makeHelpTable80 :: [(String, String)] -> Doc
-makeHelpTable80 = makeHelpTable 80 
+makeHelpTable80 = makeHelpTable 80
 
 ------------------------------------------------------------------------
 -- * Code generation.
@@ -75,8 +75,8 @@ variables langname makefileName = linesToText
   , "CXXFLAGS_BISON = $(CXXFLAGS) -Wno-unused-but-set-variable"
   , ""
   , "OBJECTS = Absyn.o \\"
+  , "\tContextFreePrettyPrinter.o \\"
   , "\tHaskellPrinter.o \\"
-  , "\tPrettyPrinter.o \\"
   , "\tPrinterCommon.o \\"
   , "\tSyntaxPrinter.o \\"
   , "\tTest.o \\"
@@ -87,11 +87,11 @@ variables langname makefileName = linesToText
   , ""
   , "BNFC_GENERATED = Absyn.cpp \\"
   , "\tAbsyn.hpp \\"
+  , "\tContextFreePrettyPrinter.cpp \\"
+  , "\tContextFreePrettyPrinter.hpp \\"
   , "\tHaskellPrinter.cpp \\"
   , "\tHaskellPrinter.hpp \\"
   , "\tPatternMatching.hpp \\"
-  , "\tPrettyPrinter.cpp \\"
-  , "\tPrettyPrinter.hpp \\"
   , "\tPrinterCommon.cpp \\"
   , "\tPrinterCommon.hpp \\"
   , "\tSyntaxPrinter.cpp \\"
@@ -194,8 +194,8 @@ rules langname = linesToText
   , "\tAbsyn.hpp PrinterCommon.hpp"
   , "\t$(CXX_COMPILE)"
   , ""
-  , "PrettyPrinter.o: PrettyPrinter.cpp PrettyPrinter.hpp \\"
-  , "\tAbsyn.hpp PrinterCommon.hpp"
+  , "ContextFreePrettyPrinter.o: ContextFreePrettyPrinter.cpp \\"
+  , "\tContextFreePrettyPrinter.hpp Absyn.hpp PrinterCommon.hpp"
   , "\t$(CXX_COMPILE)"
   , ""
   , "SyntaxPrinter.o: SyntaxPrinter.cpp SyntaxPrinter.hpp \\"
@@ -208,11 +208,11 @@ rules langname = linesToText
   , "\t$(AR_COMPILE)"
   , ""
   , "lib" ++ langname ++ "Printer.a: HaskellPrinter.o PrinterCommon.o \\"
-  , "\tPrettyPrinter.o SyntaxPrinter.o"
+  , "\tContextFreePrettyPrinter.o SyntaxPrinter.o"
   , "\t$(AR_COMPILE)"
   , ""
   , "Test.o: Test.cpp Absyn.hpp " ++ langname ++ ".tab.hpp \\"
-  , "\tHaskellPrinter.hpp PrettyPrinter.hpp "
+  , "\tHaskellPrinter.hpp ContextFreePrettyPrinter.hpp "
     ++ "SyntaxPrinter.hpp PatternMatching.hpp"
   , "\t$(CXX_COMPILE)"
   , ""

@@ -37,7 +37,7 @@ makeTest opts = let
 #include <vector>
 
 #include "HaskellPrinter.hpp"
-#include "PrettyPrinter.hpp"
+#include "ContextFreePrettyPrinter.hpp"
 #include "SyntaxPrinter.hpp"
 |]
   $+$ text ("#include \"" ++ Options.lang opts ++ ".tab.hpp\"")
@@ -166,7 +166,7 @@ if every file is parsed successfully, the exit code will be 0.
     ++ "[Abstract Syntax]\\n\\n\";"
   , "                    ast | " ++ ns ++ "HaskellPrinter(cout);"
   , "                    cout << \"\\n\\n[Linearized tree]\\n\\n\";"
-  , "                    ast | " ++ ns ++ "PrettyPrinter(cout);"
+  , "                    ast | " ++ ns ++ "ContextFreePrettyPrinter(cout);"
   , "                    cout << endl;"
   , "                    return;"
   , "                }"
@@ -177,7 +177,7 @@ if every file is parsed successfully, the exit code will be 0.
   , "                    printed = true;"
   , "                }"
   , "                if (pretty) {"
-  , "                    ast | " ++ ns ++ "PrettyPrinter(cout);"
+  , "                    ast | " ++ ns ++ "ContextFreePrettyPrinter(cout);"
   , "                    cout << \"\\n\\n\";"
   , "                    printed = true;"
   , "                }"
