@@ -561,7 +561,7 @@ parameters = concat
         , tpRunTestProg = \ lang args -> do
             bin <- baseTestProg lang
             cmd bin ("-s" : args)
-        , tpShouldGoldenCheckLin = False  -- until pretty printer is fixed
+        , tpShouldGoldenCheckLin = True
         }
     javaParams = base
         { tpBuild = do
