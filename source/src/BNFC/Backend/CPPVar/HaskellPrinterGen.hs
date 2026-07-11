@@ -75,7 +75,7 @@ makeHaskellPrinter opts printable listItemStorage = CPPHeaderSourcePair
 public:
     explicit HaskellPrinter(std::ostream& out);
 |])
-      printable empty packwrap
+      printable True empty packwrap
 
     cpp = text "#include \"HaskellPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""

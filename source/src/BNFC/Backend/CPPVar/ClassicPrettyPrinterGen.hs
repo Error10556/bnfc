@@ -50,7 +50,7 @@ classicPrettyPrinterCppFilename = prettyPrinterClassName ++ ".cpp"
 prettyPrinterClassName :: String
 prettyPrinterClassName = "ClassicPrettyPrinter"
 
--- | Generates the @ContextFreePrettyPrinter@ class
+-- | Generates the @ClassicPrettyPrinter@ class
 -- (declaration and implementation).
 makeClassicPrettyPrinter ::
      BNFC.Options.SharedOptions  -- ^ BNFC invokation options.
@@ -78,7 +78,9 @@ makeClassicPrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
     unsigned int indentInTabs = 0;
     int coercionLevel = 0;
     bool needSpace = false;
-    bool onEmptyLine = true;
+    bool needNewline = false;
+    ClassicPrettyPrinter& FlushHere();
+    ClassicPrettyPrinter& SimplePut(std::string_view);
 
 public:
     ClassicPrettyPrinter(std::ostream&, unsigned int tabSize = 4);
@@ -93,10 +95,7 @@ public:
     ClassicPrettyPrinter& WithIndent(unsigned int tabs);
     ClassicPrettyPrinter& SkipSpaceHere();
     ClassicPrettyPrinter& NeedSpaceHere();
-    ClassicPrettyPrinter& FlushSpaceHere();
 
-    const ClassicPrettyPrinter& PutVerbatim(std::string_view) const;
-    ClassicPrettyPrinter& PutVerbatim(std::string_view);
     ClassicPrettyPrinter& PutToken(std::string_view);
     ClassicPrettyPrinter& PutCharLiteral(int32_t);
     ClassicPrettyPrinter& PutStringLiteral(std::string_view);
@@ -105,6 +104,7 @@ public:
     ClassicPrettyPrinter& OnNewLine();
 |] $++$ nest 4 (printMethodDecls printable) $+$ text "")
       printable
+      False
       (unlinesToText [s|
 
 // Calls PutToken
@@ -112,7 +112,7 @@ public:
       packwrap
 
     cpp = disclaimer $++$ unlinesToText [s|
-#include "ContextFreePrettyPrinter.hpp"
+#include "ClassicPrettyPrinter.hpp"
 
 #include "PrinterCommon.hpp"
 |] $++$ packwrap
@@ -137,7 +137,7 @@ printMethodDecl ::
      PrintableSymbol  -- ^ A class to print.
   -> String
 printMethodDecl cls
-  = "ClassicPrettyPrinter& Put(const " ++ printableClassName cls
+  = "ClassicPrettyPrinter& Put(const " ++ printableClassName cls ++ "&"
     ++ maybeCoerc ++ ");"
   where
     maybeCoerc = case cls of
@@ -189,6 +189,25 @@ ClassicPrettyPrinter::ClassicPrettyPrinter(
     std::ostream& out, unsigned int tabSize)
     : out(out), tabSize(tabSize) {}
 
+ClassicPrettyPrinter& ClassicPrettyPrinter::FlushHere() {
+    if (needNewline) {
+        PutLinebreak(out, indentInTabs * tabSize);
+        needNewline = false;
+        needSpace = false;
+    } else if (needSpace) {
+        out << ' ';
+        needSpace = false;
+    }
+    return *this;
+}
+
+ClassicPrettyPrinter& ClassicPrettyPrinter::SimplePut(std::string_view s) {
+    FlushHere();
+    out << s;
+    needSpace = true;
+    return *this;
+}
+
 unsigned int ClassicPrettyPrinter::TabSize() const {
     return tabSize;
 }
@@ -234,23 +253,6 @@ ClassicPrettyPrinter& ClassicPrettyPrinter::NeedSpaceHere() {
     return *this;
 }
 
-ClassicPrettyPrinter& ClassicPrettyPrinter::FlushSpaceHere() {
-    if (needSpace) out << ' ';
-    needSpace = false;
-    return *this;
-}
-
-ClassicPrettyPrinter& ClassicPrettyPrinter::PutVerbatim(std::string_view s) {
-    out << s;
-    return *this;
-}
-
-const ClassicPrettyPrinter& ClassicPrettyPrinter::PutVerbatim(
-        std::string_view s) const {
-    out << s;
-    return *this;
-}
-
 static bool IsSpace(char ch) {
     switch (ch) {
         case ' ': case '\r': case '\n': case '\t': case '\v':
@@ -265,40 +267,34 @@ ClassicPrettyPrinter& ClassicPrettyPrinter::PutToken(std::string_view s) {
         SkipSpaceHere();
         return *this;
     }
-    onEmptyLine = false;
     if (s.size() == 1) {
         bool handled = true;
         switch (s.front()) {
             case '{':
                 OnNewLine()
-                    .PutVerbatim(s)
+                    .SimplePut(s)
                     .Indent()
                     .OnNewLine();
                 break;
             case '}':
-                Dedent()
-                    .OnNewLine()
-                    .PutVerbatim(s)
+                OnNewLine()
+                    .Dedent()
+                    .SimplePut(s)
                     .OnNewLine();
                 break;
             case ';':
-                PutVerbatim(s)
+                SkipSpaceHere()
+                    .SimplePut(s)
                     .OnNewLine();
                 break;
-            case ',':
+            case ',': case ')': case ']':
                 SkipSpaceHere()
-                    .PutVerbatim(s)
+                    .SimplePut(s)
                     .NeedSpaceHere();
                 break;
             case '(': case '[':
-                FlushSpaceHere()
-                    .PutVerbatim(s)
+                SimplePut(s)
                     .SkipSpaceHere();
-                break;
-            case ')': case ']':
-                SkipSpaceHere()
-                    .PutVerbatim(s)
-                    .NeedSpaceHere();
                 break;
             default:
                 handled = false;
@@ -307,45 +303,38 @@ ClassicPrettyPrinter& ClassicPrettyPrinter::PutToken(std::string_view s) {
         if (handled) return *this;
     }
     if (IsSpace(s.front())) SkipSpaceHere();
-    FlushSpaceHere();
-    out << s;
-    if (!IsSpace(s.back())) NeedSpaceHere();
+    SimplePut(s);
+    if (IsSpace(s.back())) SkipSpaceHere();
     return *this;
 }
 
 ClassicPrettyPrinter& ClassicPrettyPrinter::PutCharLiteral(int32_t ch) {
-    onEmptyLine = false;
-    FlushSpaceHere();
+    FlushHere();
     PrintEscapedChar(out, ch);
     return NeedSpaceHere();
 }
 
 ClassicPrettyPrinter& ClassicPrettyPrinter::PutStringLiteral(
         std::string_view s) {
-    onEmptyLine = false;
-    FlushSpaceHere();
+    FlushHere();
     PrintEscapedString(out, s);
     return NeedSpaceHere();
 }
 
 ClassicPrettyPrinter& ClassicPrettyPrinter::PutDoubleLiteral(double v) {
-    onEmptyLine = false;
-    FlushSpaceHere();
+    FlushHere();
     PrintDouble(out, v);
     return NeedSpaceHere();
 }
 
 ClassicPrettyPrinter& ClassicPrettyPrinter::PutIntegerLiteral(long v) {
-    onEmptyLine = false;
-    FlushSpaceHere();
+    FlushHere();
     PrintDouble(out, v);
     return NeedSpaceHere();
 }
 
 ClassicPrettyPrinter& ClassicPrettyPrinter::OnNewLine() {
-    if (onEmptyLine) return *this;
-    onEmptyLine = true;
-    PutLinebreak(out, indentInTabs * tabSize);
+    needNewline = true;
     needSpace = false;
     return *this;
 }
@@ -454,14 +443,15 @@ methodCategory name = linesToText
 methodFunctionRule :: CF.Rule -> Doc
 methodFunctionRule r = linesToText
   [ concat
-    [ "void ClassicPrettyPrinter::Put(const "
+    [ "ClassicPrettyPrinter& ClassicPrettyPrinter::Put(const "
     , name
-    , "& v [[maybe_unused]]) const {"
+    , "& v [[maybe_unused]]) {"
     ]
   , "    IF_BAD_COERC PutToken(\"(\");"
   ] $+$ nest 4 (putSentForm $ CF.rhsRule r)
   $+$ linesToText
   [ "    IF_BAD_COERC PutToken(\")\");"
+  , "    return *this;"
   , "}"
   ]
   where
@@ -488,10 +478,12 @@ methodFunctionRule r = linesToText
 -- | Generates a method that prints a custom token.
 methodCustomToken :: String -> Doc
 methodCustomToken name = linesToText
-  [ "void ClassicPrettyPrinter::Put(const " ++ name ++ "& v) const {"
+  [ "ClassicPrettyPrinter& ClassicPrettyPrinter::Put(const "
+    ++ name ++ "& v) {"
   , "    IF_BAD_COERC PutToken(\"(\");"
-  , "    out << v." ++ tokenStorageName name ++ ";"
+  , "    PutToken(v." ++ tokenStorageName name ++ ");"
   , "    IF_BAD_COERC PutToken(\")\");"
+  , "    return *this;"
   , "}"
   ]
 
@@ -509,13 +501,14 @@ methodList listItemStorage (PrintableListDescription
   , printListOfVars    = containsVariants
   })
   = linesToText
-  [ "void ContextFreePrettyPrinter::operator()(const " ++ name ++ "& v) const {"
+  [ "ClassicPrettyPrinter& ClassicPrettyPrinter::Put(const " ++ name ++ "& v) {"
   , "    IF_BAD_COERC PutToken(\"(\");"
   , "    int prevCoerc = coercionLevel;"
   , "    coercionLevel = " ++ show itemcoerc ++ ";"
   ] $+$ nest 4 body $+$ linesToText
   [ "    coercionLevel = prevCoerc;"
   , "    IF_BAD_COERC PutToken(\")\");"
+  , "    return *this;"
   , "}"
   ]
   where
@@ -576,16 +569,14 @@ makeShlImpls ::
      [PrintableSymbol]
   -> Doc
 makeShlImpls symbols = unlinesToText [s|
-#define ClassicPrettyPrinterSHL(type)                               \
-    const ClassicPrettyPrinter& operator<<(ClassicPrettyPrinter& p, \
-                                           const type& v) {         \
-        return p.Put(v);                                            \
+#define ClassicPrettyPrinterSHL(type)                                          \
+    ClassicPrettyPrinter& operator<<(ClassicPrettyPrinter& p, const type& v) { \
+        return p.Put(v);                                                       \
     }
 
-#define ClassicPrettyPrinterSHL0(type)                              \
-    const ClassicPrettyPrinter& operator<<(ClassicPrettyPrinter& p, \
-                                           const type& v) {         \
-        return p.Put(v, 0);                                         \
+#define ClassicPrettyPrinterSHL0(type)                                         \
+    ClassicPrettyPrinter& operator<<(ClassicPrettyPrinter& p, const type& v) { \
+        return p.Put(v, 0);                                                    \
     }
 |]
   $++$ linesToText
@@ -601,8 +592,7 @@ makeShlImpls symbols = unlinesToText [s|
     | sym <- symbols
     ]
   $++$ unlinesToText [s|
-ClassicPrettyPrinter& operator<<(ClassicPrettyPrinter& p,
-                                       std::string_view v) {
+ClassicPrettyPrinter& operator<<(ClassicPrettyPrinter& p, std::string_view v) {
     return p.PutToken(v);
 }
 |]

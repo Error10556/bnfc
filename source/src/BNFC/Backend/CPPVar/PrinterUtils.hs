@@ -167,10 +167,11 @@ makePrinterHeaderFile ::
   -> Doc
     -- ^ Top of class declaration (between @class Printer {@ and the methods)
   -> [PrintableSymbol]  -- ^ Printing methods.
+  -> Bool               -- ^ Should the @operator()@s be marked as const?
   -> Doc                -- ^ Comment on @operator<<(string_view)@.
   -> (Doc -> Doc)       -- ^ Namespace wrapping function.
   -> Doc
-makePrinterHeaderFile className includes classtop printables
+makePrinterHeaderFile className includes classtop printables constThis
   shlStringViewComment packwrap =
     includes $++$ packwrap inNamespace
   where
@@ -182,7 +183,7 @@ makePrinterHeaderFile className includes classtop printables
       $++$ shlOperators
     printableNames = map printableClassName printables
     visitMethods = nest 4 $ foldr ($+$) empty
-      [ text $ "void operator()(const " ++ s ++ "&) const;"
+      [ text $ "void operator()(const " ++ s ++ "&)" ++ maybeConst ++ ";"
       | s <- printableNames ]
     makeShlRaw s = text $ concat
       [ "const "
@@ -197,6 +198,9 @@ makePrinterHeaderFile className includes classtop printables
     shlOperators = foldr (($+$) . makeShlConst)
       (shlStringViewComment $+$ makeShlRaw "std::string_view")
       printableNames
+    maybeConst
+      | constThis = " const"
+      | otherwise = ""
 
 -- | Generates implementations of overloaded @<<@ (Shift-Left) operators
 -- for a printer visitor.

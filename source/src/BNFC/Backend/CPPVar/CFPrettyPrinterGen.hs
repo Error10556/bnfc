@@ -93,7 +93,7 @@ public:
     ContextFreePrettyPrinter WithCoercionLevel(int level) const;
     void NewLine() const;
 |])
-      printable empty packwrap
+      printable True empty packwrap
 
     cpp = disclaimer $++$ unlinesToText [s|
 #include "ContextFreePrettyPrinter.hpp"
