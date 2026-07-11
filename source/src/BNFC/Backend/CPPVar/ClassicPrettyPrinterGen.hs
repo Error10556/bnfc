@@ -525,7 +525,7 @@ methodList listItemStorage (PrintableListDescription
         $+$ nest 4 (lcons'
             $+$ text (putItem $ "item")
             $+$ mcons')
-        $+$ text "}" $+$ cyclercons False
+        $+$ text "}" $+$ empty' $+$ cyclercons False
       Just (lsingle, _, rsingle) -> text "if (v.empty()) {"
         $+$ nest 4 empty'
         $+$ text "} else {"
