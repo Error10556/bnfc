@@ -258,6 +258,7 @@ library
     BNFC.Backend.CPPVar.HaskellPrinterGen
     BNFC.Backend.CPPVar.SyntaxPrinterGen
     BNFC.Backend.CPPVar.CFPrettyPrinterGen
+    BNFC.Backend.CPPVar.ClassicPrettyPrinterGen
     BNFC.Backend.CPPVar.PrinterCommonGen
     BNFC.Backend.CPPVar.TestGen
     BNFC.Backend.CPPVar.MakefileGen

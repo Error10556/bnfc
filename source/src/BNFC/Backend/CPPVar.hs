@@ -25,6 +25,8 @@ import qualified BNFC.Backend.CPPVar.PatternMatchingGen as PatternMatchingGen
 import qualified BNFC.Backend.CPPVar.PrinterUtils as PrinterUtils
 import qualified BNFC.Backend.CPPVar.SyntaxPrinterGen as SyntaxPrinterGen
 import qualified BNFC.Backend.CPPVar.CFPrettyPrinterGen as CFPrettyPrinterGen
+import qualified BNFC.Backend.CPPVar.ClassicPrettyPrinterGen
+  as ClassicPrettyPrinterGen
 import qualified BNFC.Backend.CPPVar.HaskellPrinterGen as HaskellPrinterGen
 import qualified BNFC.Backend.CPPVar.TestGen as TestGen
 import qualified BNFC.Backend.CPPVar.PrinterCommonGen as PrinterCommonGen
@@ -42,7 +44,12 @@ grammar description file, as given by 'BNFC.Options.lang'):
 +----------------------------+-------------------------------------------+
 | @PrinterCommon.hpp@        | common string visualization utilities     |
 +----------------------------+-------------------------------------------+
-| @PrettyPrinter.hpp@        | pretty-printing                           |
+| @ContextFreePretty@        | pretty-printing                           |
+| @Printer.hpp@              |                                           |
++----------------------------+-------------------------------------------+
+| @ClassicPrettyPrinter.hpp@ | pretty-printing                           |
++----------------------------+-------------------------------------------+
+| @HaskellPrinter.hpp@       | visualization of the abstract syntax tree |
 +----------------------------+-------------------------------------------+
 | @SyntaxPrinter.hpp@        | visualization of the abstract syntax tree |
 +----------------------------+-------------------------------------------+
@@ -56,7 +63,12 @@ grammar description file, as given by 'BNFC.Options.lang'):
 +----------------------------+-------------------------------------------+
 | @PrinterCommon.cpp@        |                                           |
 +----------------------------+-------------------------------------------+
-| @PrettyPrinter.cpp@        |                                           |
+| @ContextFreePretty@        |                                           |
+| @Printer.cpp@              |                                           |
++----------------------------+-------------------------------------------+
+| @ClassicPrettyPrinter.cpp@ |                                           |
++----------------------------+-------------------------------------------+
+| @HaskellPrinter.cpp@       |                                           |
 +----------------------------+-------------------------------------------+
 | @SyntaxPrinter.cpp@        |                                           |
 +----------------------------+-------------------------------------------+
@@ -109,6 +121,11 @@ makeCppVar opts (CFG
       { cppHeaderText = haskellHpp
       , cppSourceText = haskellCpp
       } = HaskellPrinterGen.makeHaskellPrinter opts printables listItemStorage
+    CPPUtil.CPPHeaderSourcePair
+      { cppHeaderText = cprettyHpp
+      , cppSourceText = cprettyCpp
+      } = ClassicPrettyPrinterGen.makeClassicPrettyPrinter
+        opts printables listItemStorage
   mkfile AbsynGen.absynHppFilename comment absynHpp
   mkfile AbsynGen.absynCppFilename comment absynCpp
   mkfile (FlexGen.flexFilename opts) comment flexFile
@@ -125,6 +142,10 @@ makeCppVar opts (CFG
   mkfile CFPrettyPrinterGen.prettyPrinterCppFilename comment prettyCpp
   mkfile HaskellPrinterGen.haskellPrinterHppFilename comment haskellHpp
   mkfile HaskellPrinterGen.haskellPrinterCppFilename comment haskellCpp
+  mkfile ClassicPrettyPrinterGen.classicPrettyPrinterHppFilename comment
+    cprettyHpp
+  mkfile ClassicPrettyPrinterGen.classicPrettyPrinterCppFilename comment
+    cprettyCpp
   mkfile TestGen.testFilename comment (TestGen.makeTest opts)
   case optMake opts of
     Nothing           -> return ()

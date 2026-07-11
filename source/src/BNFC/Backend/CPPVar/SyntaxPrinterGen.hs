@@ -77,7 +77,7 @@ makeSyntaxPrinter opts printable listItemStorage = CPPHeaderSourcePair
 public:
     explicit SyntaxPrinter(std::ostream& out);
 |])
-      printable packwrap
+      printable empty packwrap
 
     cpp = text "#include \"SyntaxPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""

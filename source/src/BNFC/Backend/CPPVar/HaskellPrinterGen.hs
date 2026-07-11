@@ -20,7 +20,7 @@ module BNFC.Backend.CPPVar.HaskellPrinterGen
 -- Language imports
 import Data.List (intersperse)
 import Data.String.QQ (s)
-import Text.PrettyPrint (($+$), Doc, nest, text)
+import Text.PrettyPrint (($+$), Doc, nest, text, empty)
 
 -- BNFC imports
 import qualified BNFC.CF as CF
@@ -75,7 +75,7 @@ makeHaskellPrinter opts printable listItemStorage = CPPHeaderSourcePair
 public:
     explicit HaskellPrinter(std::ostream& out);
 |])
-      printable packwrap
+      printable empty packwrap
 
     cpp = text "#include \"HaskellPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""

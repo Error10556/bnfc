@@ -59,6 +59,8 @@ data PrintableListDescription = PrintableListDescription
     -- ^ Representation of a @cons@ operation, @(:)@.
   , printListSingle    :: !(Maybe ([String], CF.Cat, [String]))
     -- ^ Representation of a singleton list, @(:[])@.
+  , printListOfVars    :: !Bool
+    -- ^ True iff the contained elements are normal categories.
   }
 
 -- | Extracts printable symbols from the grammar description.
@@ -87,6 +89,10 @@ getPrintableSymbols cfLits cfPragmas (MergedGroupedRules rulemap) =
             , printListCons      = parseCons <$> Map.lookup "(:)" mapRules
             , printListSingle    = parseSingleton
               <$> Map.lookup "(:[])" mapRules
+            , printListOfVars    = case itemcat of
+              CF.Cat _        -> True
+              CF.CoercCat _ _ -> True
+              _               -> False
             }]
           where
             mapRules = Map.fromList [(CF.funName r, CF.rhsRule r) | r <- rules]
@@ -161,10 +167,12 @@ makePrinterHeaderFile ::
   -> Doc
     -- ^ Top of class declaration (between @class Printer {@ and the methods)
   -> [PrintableSymbol]  -- ^ Printing methods.
+  -> Doc                -- ^ Comment on @operator<<(string_view)@.
   -> (Doc -> Doc)       -- ^ Namespace wrapping function.
   -> Doc
-makePrinterHeaderFile className includes classtop printables packwrap =
-  includes $++$ packwrap inNamespace
+makePrinterHeaderFile className includes classtop printables
+  shlStringViewComment packwrap =
+    includes $++$ packwrap inNamespace
   where
     inNamespace =
       text ("class " ++ className ++ " {")
@@ -186,7 +194,8 @@ makePrinterHeaderFile className includes classtop printables packwrap =
       , ");"
       ]
     makeShlConst s = makeShlRaw $ "const " ++ s ++ "&"
-    shlOperators = foldr (($+$) . makeShlConst) (makeShlRaw "std::string_view")
+    shlOperators = foldr (($+$) . makeShlConst)
+      (shlStringViewComment $+$ makeShlRaw "std::string_view")
       printableNames
 
 -- | Generates implementations of overloaded @<<@ (Shift-Left) operators
