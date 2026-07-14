@@ -36,18 +36,65 @@ makeTest opts = let
 #include <cstring>
 #include <vector>
 
+#undef YES_PRETTY
+#undef YES_CPRETTY
+#undef YES_TREE
+#undef YES_HASKELL
+#undef YES_SYSTEST
+
+#ifndef NO_PRETTY
+#define YES_PRETTY
+#endif
+#ifndef NO_CPRETTY
+#define YES_CPRETTY
+#endif
+#ifndef NO_TREE
+#define YES_TREE
+#endif
+#ifndef NO_HASKELL
+#define YES_HASKELL
+#endif
+#if !defined(NO_HASKELL) && !defined(NO_CPRETTY)
+#define YES_SYSTEST
+#endif
+
+#ifdef YES_HASKELL
 #include "HaskellPrinter.hpp"
+#endif
+#ifdef YES_CPRETTY
 #include "ClassicPrettyPrinter.hpp"
+#endif
+#ifdef YES_PRETTY
 #include "ContextFreePrettyPrinter.hpp"
+#endif
+#ifdef YES_TREE
 #include "SyntaxPrinter.hpp"
+#endif
+#include "grammar.tab.hpp"
+#include "PatternMatching.hpp"
+using namespace std;
 |]
   $+$ text ("#include \"" ++ Options.lang opts ++ ".tab.hpp\"")
   $+$ unlinesToText [s|
 #include "PatternMatching.hpp"
 using namespace std;
 
-bool help = false, pretty = false, cpretty = false, tree = false,
-     haskell = false, systest = false;
+bool help = false;
+#ifdef YES_PRETTY
+bool pretty = false;
+#endif
+#ifdef YES_CPRETTY
+bool cpretty = false;
+#endif
+#ifdef YES_TREE
+bool tree = false;
+#endif
+#ifdef YES_HASKELL
+bool haskell = false;
+#endif
+#ifdef YES_SYSTEST
+bool systest = false;
+#endif
 
 int main(int argc, char** argv) {
     if (!argc) {
@@ -76,16 +123,26 @@ int main(int argc, char** argv) {
                 onlyFiles = true;
             else if (strcmp(arg + 2, "help") == 0)
                 help = true;
+#ifdef YES_PRETTY
             else if (strcmp(arg + 2, "pretty") == 0)
                 pretty = true;
+#endif
+#ifdef YES_CPRETTY
             else if (strcmp(arg + 2, "cpretty") == 0)
                 cpretty = true;
+#endif
+#ifdef YES_TREE
             else if (strcmp(arg + 2, "tree") == 0)
                 tree = true;
+#endif
+#ifdef YES_HASKELL
             else if (strcmp(arg + 2, "haskell") == 0)
                 haskell = true;
+#endif
+#ifdef YES_SYSTEST
             else if (strcmp(arg + 2, "systest") == 0)
                 systest = true;
+#endif
             else {
                 cerr << "Invalid option: " << arg << endl;
                 return 1;
@@ -97,21 +154,31 @@ int main(int argc, char** argv) {
                 case 'h':
                     help = true;
                     break;
+#ifdef YES_PRETTY
                 case 'p':
                     pretty = true;
                     break;
+#endif
+#ifdef YES_CPRETTY
                 case 'P':
                     cpretty = true;
                     break;
+#endif
+#ifdef YES_TREE
                 case 't':
                     tree = true;
                     break;
+#endif
+#ifdef YES_HASKELL
                 case 'H':
                     haskell = true;
                     break;
+#endif
+#ifdef YES_SYSTEST
                 case 's':
                     systest = true;
                     break;
+#endif
                 default:
                     cerr << "Invalid option: -" << *i << endl;
                     return 1;
@@ -126,12 +193,24 @@ int main(int argc, char** argv) {
         cout << R"%(
 Options:
   -h --help     Display this message.
-  -p --pretty   Pretty-print the syntax tree (using ContextFreePrettyPrinter).
-  -P --cpretty  Pretty-print the syntax tree (using ClassicPrettyPrinter).
-  -t --tree     Print the abstract syntax tree like a tree.
-  -H --haskell  Print the abstract syntax tree as a Haskell expression.
-  -s --systest  For use in BNFC system tests. Overrides other options.
-     --         Treat the remaining arguments as files.
+)%"
+#ifdef YES_PRETTY
+"  -p --pretty   "
+"Pretty-print the syntax tree (using ContextFreePrettyPrinter).\n"
+#endif
+#ifdef YES_CPRETTY
+"  -P --cpretty  Pretty-print the syntax tree (using ClassicPrettyPrinter).\n"
+#endif
+#ifdef YES_TREE
+"  -t --tree     Print the abstract syntax tree like a tree.\n"
+#endif
+#ifdef YES_HASKELL
+"  -H --haskell  Print the abstract syntax tree as a Haskell expression.\n"
+#endif
+#ifdef YES_SYSTEST
+"  -s --systest  For use in BNFC system tests. Overrides other options.\n"
+#endif
+R"%(     --         Treat the remaining arguments as files.
 
 If no files are specified of if FILE is -, read standard input.
 
@@ -167,7 +246,8 @@ if every file is parsed successfully, the exit code will be 0.
     ++ "<< err.what() << \"\\n\\n\";"
   , "                errorcount += errorcount != 0x7FFFFFFF;"
   , "            },"
-  , "            [](auto&& ast) {"
+  , "            [](" ++ ns ++ "ParseResultVariant&& ast) {"
+  , "#ifdef YES_SYSTEST"
   , "                if (systest) {"
   , "                    cout << \"Parse Successful!\\n\\n"
     ++ "[Abstract Syntax]\\n\\n\";"
@@ -177,27 +257,36 @@ if every file is parsed successfully, the exit code will be 0.
   , "                    cout << endl;"
   , "                    return;"
   , "                }"
+  , "#endif"
   , "                bool printed = false;"
+  , "#ifdef YES_TREE"
   , "                if (tree) {"
   , "                    ast | " ++ ns ++ "SyntaxPrinter(cout);"
   , "                    cout << '\\n';"
   , "                    printed = true;"
   , "                }"
+  , "#endif"
+  , "#ifdef YES_PRETTY"
   , "                if (pretty) {"
   , "                    ast | " ++ ns ++ "ContextFreePrettyPrinter(cout);"
   , "                    cout << \"\\n\\n\";"
   , "                    printed = true;"
   , "                }"
+  , "#endif"
+  , "#ifdef YES_CPRETTY"
   , "                if (cpretty) {"
   , "                    ast | " ++ ns ++ "ClassicPrettyPrinter(cout, 2);"
   , "                    cout << \"\\n\\n\";"
   , "                    printed = true;"
   , "                }"
+  , "#endif"
+  , "#ifdef YES_HASKELL"
   , "                if (haskell) {"
   , "                    ast | " ++ ns ++ "HaskellPrinter(cout);"
   , "                    cout << \"\\n\\n\";"
   , "                    printed = true;"
   , "                }"
+  , "endif"
   ] $+$ unlinesToText [s|
                 if (!printed) cout << "OK\n\n";
                 return;
