@@ -242,31 +242,22 @@ using ParseResultOrError =
     std::variant<ParseResultVariant, Parser::syntax_error>;
 ParseResultOrError Parse(FILE* file);
 ParseResultOrError Parse(std::string_view str);
+std::string_view ParsedNodeName(const ParseResultVariant&);
 
 template <class T>
 std::variant<T, Parser::syntax_error>
 EnsureParsedType(ParseResultOrError&& parsed) {
-    using RetType = std::variant<T, Parser::syntax_error>;
-    return std::visit([](auto&& v) -> RetType {
-        using TParsedOrError = std::decay_t<decltype(v)>;
-        if constexpr
-            (std::is_same_v<TParsedOrError, Parser::syntax_error>) {
-            return std::move(v);
-        } else {  // ParseResultVariant
-            return std::visit([](auto&& v) -> RetType {
-                using TParsedClass = std::decay_t<decltype(v)>;
-                if constexpr (std::is_same_v<TParsedClass, T>) {
-                    return std::move(v);
-                } else {
-                    std::string msg = "Unexpected syntax: tried to parse ";
-                    msg.append(reflection::SyntaxNodeName<T>)
-                        .append(", but got ")
-                        .append(reflection::SyntaxNodeName<TParsedClass>);
-                    return Parser::syntax_error(msg);
-                }
-            }, std::move(v));
-        }
-    }, std::move(parsed));
+    if (auto* err = std::get_if<Parser::syntax_error>(&parsed))
+        return std::move(*err);
+    auto& var = std::get<ParseResultVariant>(parsed);
+    if (auto* target = std::get_if<T>(&var))
+        return std::move(*target);
+    std::string msg = "Unexpected syntax: tried to parse ";
+    msg
+        .append(reflection::SyntaxNodeName<T>)
+        .append(", but got ")
+        .append(ParsedNodeName(var));
+    return Parser::syntax_error(msg);
 }
 
 template <class T>
@@ -549,6 +540,12 @@ codeSection utils opts = namespaceWrap utils $
   , ""
   , "ParseResultOrError Parse(std::string_view str) {"
   , "    return Parse(" ++ scannerName ++ "(str));"
+  , "}"
+  , ""
+  , "std::string_view ParsedNodeName(const ParseResultVariant& var) {"
+  , "    return std::visit([](const auto& node) -> std::string_view {"
+  , "        return reflection::SyntaxNodeName<std::decay_t<decltype(node)>>;"
+  , "    }, var);"
   , "}"
   ]
   where
