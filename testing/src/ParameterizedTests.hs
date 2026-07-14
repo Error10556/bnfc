@@ -555,9 +555,10 @@ parameters = concat
         }
     cppvarBase = base
         { tpBuild = do
-            tpMake ("CXXFLAGS=-fsanitize=address -fsanitize=leak "
-                ++ "-Wall -Werror -Wextra")
-              "LDFLAGS=-fsanitize=address -fsanitize=leak"
+            cmd "make" ["-f", tpMakefile, "NO_PRETTY=1", "NO_TREE=1",
+              ("CXXFLAGS=-fsanitize=address -fsanitize=leak "
+                ++ "-Wall -Werror -Wextra"),
+              "LDFLAGS=-fsanitize=address -fsanitize=leak"]
         , tpRunTestProg = \ lang args -> do
             bin <- baseTestProg lang
             cmd bin ("-s" : args)
