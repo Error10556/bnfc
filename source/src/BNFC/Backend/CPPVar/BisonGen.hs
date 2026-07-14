@@ -19,6 +19,8 @@ module BNFC.Backend.CPPVar.BisonGen
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.String.QQ (s)
 
 import Text.PrettyPrint
@@ -42,13 +44,18 @@ makeBison ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
-  -> [CF.Literal]           -- ^ All used built-in tokens.
-  -> [CF.Pragma]            -- ^ Grammar pragmas (contain user-defined tokens).
-  -> GroupedRules           -- ^ Rules grouped by the category.
-  -> AbsynGen.ListItemStorage  -- ^ How to access list elements.
-  -> [CF.Cat]               -- ^ Entrypoints.
+  -> [CF.Literal]  -- ^ All used built-in tokens.
+  -> [CF.Pragma]   -- ^ Grammar pragmas (contain user-defined tokens).
+  -> MergedGroupedRules
+    -- ^ Rules grouped by the category without precedence level.
+  -> GroupedRules
+    -- ^ Rules grouped by the category with precedence level.
+  -> AbsynGen.ListItemStorage
+    -- ^ How to access list elements.
+  -> [CF.Cat]      -- ^ Entrypoints.
   -> Doc
 makeBison opts implicitTokenNames literals pragmas
+    mergedGroupedRules
     groupedRules@(GroupedRules rulemap) storeListItemsBy entrypoints =
   bisonHeader opts
   $++$ tokenDefs implicitTokenNames literals pragmas
@@ -58,7 +65,7 @@ makeBison opts implicitTokenNames literals pragmas
   $++$ codeLex utils
   $++$ text "%start __start__"
   $++$ text "%%"
-  $++$ startRules entrypoints groupedRules
+  $++$ startRules entrypoints mergedGroupedRules groupedRules
   $++$ vcatSpaced (map (uncurry $ category implicitTokenNames storeListItemsBy)
       $ Map.toList rulemap)
   $++$ text "%%"
@@ -328,30 +335,70 @@ sentFormCatToBisonName = \case
 
 -- | Generates the entrypoint alternatives as grammar rules.
 startRules ::
-     [CF.Cat]      -- ^ Grammar entrypoints.
-  -> GroupedRules  -- ^ Grammar description (with coercion levels).
+     [CF.Cat]            -- ^ Grammar entrypoints.
+  -> MergedGroupedRules  -- ^ Grammar description (with merged coercion levels).
+  -> GroupedRules        -- ^ Grammar description (separate coercion levels).
   -> Doc
--- The grammar may not have a coercionless rule for an entrypoint.
--- So we have to find the minimal category with the same name as in the
--- entrypoint.
-startRules entrypoints (GroupedRules rulemap) =
-  text "__start__" $+$ bisonRules (map rule entrypoints)
+startRules entrypoints (MergedGroupedRules mrulemap) (GroupedRules rulemap) =
+  text "__start__" $+$ bisonRules (map rule $ concatMap allBaseFor entrypoints)
   where
-    rule cat = sentFormCatToBisonName (findProperCoerc cat)
+    allBaseFor = \case
+      CF.Cat name ->
+        let Just mybase = Map.lookup name baseCoercionLevels
+        in map (\case
+            Nothing  -> CF.Cat name
+            Just lvl -> CF.CoercCat name lvl
+          ) $ Set.toList mybase
+      CF.CoercCat _ _ -> error $ "CoercCat in entrypoints"
+      listcat@(CF.ListCat _) -> [listcat]
+      tokencat@(CF.TokenCat _) -> [tokencat]
+    rule cat = sentFormCatToBisonName cat
       ++ " YYEOF { *result = {{ParseResultVariant(std::move($1))}}; }"
-    findProperCoerc :: CF.Cat -> CF.Cat
-    findProperCoerc = \case
-      cat@(CF.Cat name) -> case name `Map.lookup` smallestCoercions of
-        Nothing   -> cat
-        Just (-1) -> cat
-        Just n    -> CF.CoercCat name n
-      other             -> other
-    smallestCoercions :: Map String Integer  -- ^ -1 = coercionless
-    smallestCoercions = foldr (\case
-        Nontoken_Cat name            -> Map.insert name (-1)
-        Nontoken_CoercCat name coerc -> Map.insert name coerc
-        Nontoken_ListCat _           -> id
-      ) Map.empty $ Map.keys rulemap
+    cat2CoercLevel = \case
+      CF.Cat      _     -> Nothing
+      CF.CoercCat _ lvl -> Just lvl
+      CF.TokenCat _     -> error "Cannot take coercLevel of TokenCat"
+      CF.ListCat  _     -> error "Cannot take coercLevel of ListCat"
+    allCoercionLevels :: Map String (Set (Maybe Integer))
+    allCoercionLevels = foldr (\case
+        Nontoken_Cat name ->
+          Map.insertWith Set.union name $ Set.singleton Nothing
+        Nontoken_CoercCat name lvl ->
+          Map.insertWith Set.union name $ Set.singleton $ Just lvl
+        Nontoken_ListCat _ -> id
+      ) Map.empty (Map.keys rulemap)
+    -- | The coercion levels that are not verbatim RHS of another level of the
+    -- same category.
+    baseCoercionLevels :: Map String (Set (Maybe Integer))
+    baseCoercionLevels = foldr (\case
+        (NontokenClass_Cat name, rules) -> let
+            Just allLevels = Map.lookup name allCoercionLevels
+            badLevels =
+              [ cat2CoercLevel badcat
+              | CF.Rule
+                { internal = CF.Parsable
+                , funRule = CF.WithPosition { wpThing = "_" }
+                , rhsRule = [Left badcat]
+                } <- rules
+              ]
+          in Map.insert name $ Set.difference allLevels $ Set.fromList badLevels
+        (NontokenClass_ListCat _, _) -> id
+      ) Map.empty $ Map.toList mrulemap
+    -- coercEntrypoints = concatMap (\case
+    --     CF.Cat name -> let
+    --         Just allLevels = Map.lookup name coercionLevels
+    --         allCoerc =
+    --           [ (to, from)
+    --           | r <- 
+    --       in
+    --         if any (\ r ->
+    --           CF.isCoercion r
+    --           && CF.isParsable r
+    --           && CF.rhsRule r == [Left cat]) 
+    --     CF.CoercCat name lvl ->
+    --       error $ "entrypoints contain a CoercCat " ++ name ++ show lvl
+    --     other -> [other]
+    --   ) entrypoints
 
 -- | Generates all Bison rules for a category.
 category ::
