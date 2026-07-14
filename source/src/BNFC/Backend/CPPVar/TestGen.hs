@@ -286,7 +286,7 @@ if every file is parsed successfully, the exit code will be 0.
   , "                    cout << \"\\n\\n\";"
   , "                    printed = true;"
   , "                }"
-  , "endif"
+  , "#endif"
   ] $+$ unlinesToText [s|
                 if (!printed) cout << "OK\n\n";
                 return;
