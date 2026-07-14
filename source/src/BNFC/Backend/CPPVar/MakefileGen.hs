@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes #-}
 {-|
   Module      : BNFC.Backend.CPPVar.MakefileGen
   Description : Makefile generator.
@@ -10,6 +11,8 @@ module BNFC.Backend.CPPVar.MakefileGen
     -- * The entrypoint
     makeMakefile
   ) where
+
+import Data.String.QQ (s)
 
 import Text.PrettyPrint (Doc, text, ($+$))
 import qualified BNFC.Options as Options
@@ -103,7 +106,49 @@ variables langname makefileName = linesToText
   , "\t" ++ langname ++ ".l \\"
   , "\t" ++ langname ++ ".ypp \\"
   , "\t" ++ makefileName
-  ]
+  ] $++$ unlinesToText [s|
+TEST_DFLAGS =
+ifneq ($(NO_PRETTY),)
+TEST_DFLAGS += -DNO_PRETTY
+endif
+ifneq ($(NO_CPRETTY),)
+TEST_DFLAGS += -DNO_CPRETTY
+endif
+ifneq ($(NO_TREE),)
+TEST_DFLAGS += -DNO_TREE
+endif
+ifneq ($(NO_HASKELL),)
+TEST_DFLAGS += -DNO_HASKELL
+endif
+
+LIBPRINTER_DEPS = PrinterCommon.o
+ifeq ($(NO_PRETTY),)
+LIBPRINTER_DEPS += ContextFreePrettyPrinter.o
+endif
+ifeq ($(NO_CPRETTY),)
+LIBPRINTER_DEPS += ClassicPrettyPrinter.o
+endif
+ifeq ($(NO_TREE),)
+LIBPRINTER_DEPS += SyntaxPrinter.o
+endif
+ifeq ($(NO_HASKELL),)
+LIBPRINTER_DEPS += HaskellPrinter.o
+endif
+
+TEST_PRINTER_HEADERS =
+ifeq ($(NO_PRETTY),)
+TEST_PRINTER_HEADERS += ContextFreePrettyPrinter.hpp
+endif
+ifeq ($(NO_CPRETTY),)
+TEST_PRINTER_HEADERS += ClassicPrettyPrinter.hpp
+endif
+ifeq ($(NO_TREE),)
+TEST_PRINTER_HEADERS += SyntaxPrinter.hpp
+endif
+ifeq ($(NO_HASKELL),)
+TEST_PRINTER_HEADERS += HaskellPrinter.hpp
+endif
+|]
 
 -- | A help table for phony targets.
 phonyHelp ::
@@ -135,10 +180,23 @@ helpTextVariable :: String -> Doc
 helpTextVariable langname = text "define HELPMESSAGE"
   $+$ text "Phony targets:" $++$ phonyHelp langname
   $++$ text "File targets:" $++$ nonPhonyHelp langname
-  $++$ text "For any *.cpp file, a corresponding *.o file can be built."
-  $+$ text "endef"
+  $++$ unlinesToText [s|
+For any *.cpp file, a corresponding *.o file can be built.
 
--- | All Makefile rules.
+Variables:
+
+VARIABLE   | DESCRIPTION
+-----------|--------------------------------------------------------------------
+NO_PRETTY  | Set to a nonempty string to not use the ContextFreePrettyPrinter.
+NO_CPRETTY | Set to a nonempty string to not use the ClassicPrettyPrinter.
+NO_TREE    | Set to a nonempty string to not use the SyntaxPrinter.
+NO_HASKELL | Set to a nonempty string to not use the HaskellPrinter.
+
+The --systest option is available in the Testgrammar program when
+ClassicPrettyPrinter and HaskellPrinter are available.
+endef
+|]
+
 rules ::
      String  -- ^ Language name.
   -> Doc
@@ -214,14 +272,12 @@ rules langname = linesToText
     ++ langname ++ ".tab.o"
   , "\t$(AR_COMPILE)"
   , ""
-  , "lib" ++ langname ++ "Printer.a: HaskellPrinter.o PrinterCommon.o \\"
-  , "\tClassicPrettyPrinter.o ContextFreePrettyPrinter.o SyntaxPrinter.o"
+  , "lib" ++ langname ++ "Printer.a: $(LIBPRINTER_DEPS)"
   , "\t$(AR_COMPILE)"
   , ""
-  , "Test.o: Test.cpp Absyn.hpp " ++ langname ++ ".tab.hpp \\"
-  , "\tHaskellPrinter.hpp ClassicPrettyPrinter.hpp \\"
-  , "\tContextFreePrettyPrinter.hpp SyntaxPrinter.hpp PatternMatching.hpp"
-  , "\t$(CXX_COMPILE)"
+  , "Test.o: Test.cpp Absyn.hpp " ++ langname ++ ".tab.hpp "
+    ++ "PatternMatching.hpp $(TEST_PRINTER_HEADERS)"
+  , "\t$(CXX) $(CXXFLAGS) $(TEST_DFLAGS) -c -o $@ $<"
   , ""
   , "Test" ++ langname ++ ": Test.o lib" ++ langname ++ "Parser.a lib"
     ++ langname ++ "Printer.a"
