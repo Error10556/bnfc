@@ -70,9 +70,6 @@ makeTest opts = let
 #ifdef YES_TREE
 #include "SyntaxPrinter.hpp"
 #endif
-#include "grammar.tab.hpp"
-#include "PatternMatching.hpp"
-using namespace std;
 |]
   $+$ text ("#include \"" ++ Options.lang opts ++ ".tab.hpp\"")
   $+$ unlinesToText [s|
