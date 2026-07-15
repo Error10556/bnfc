@@ -349,7 +349,7 @@ makePutMethod ::
   -> Doc
 makePutMethod variantns listItemStorage = \case
   PrintableNormalCategory s -> methodCategory variantns s
-  PrintableList listDesc    -> methodList listItemStorage listDesc
+  PrintableList listDesc    -> methodList variantns listItemStorage listDesc
   PrintableFunctionRule r   -> methodFunctionRule r
   PrintableCustomToken t    -> methodCustomToken t
   PrintableIdent            -> methodIdent
@@ -492,10 +492,11 @@ methodCustomToken name = linesToText
 
 -- | Generates a method that prints a list category.
 methodList ::
-     ListItemStorage           -- ^ How to access list elements.
+     String                    -- ^ The namespace of the @variant@ class.
+  -> ListItemStorage           -- ^ How to access list elements.
   -> PrintableListDescription  -- ^ About the list.
   -> Doc
-methodList listItemStorage (PrintableListDescription
+methodList variantns listItemStorage (PrintableListDescription
   { printListName      = name
   , printListItemCoerc = itemcoerc
   , printListEmpty     = empty
@@ -520,7 +521,7 @@ methodList listItemStorage (PrintableListDescription
       StoreByPointer -> "*"
     putItem
       | containsVariants =
-        \ s -> "std::visit(*this, " ++ maybeDereference ++ s ++ ");"
+        \ s -> variantns ++ "::visit(*this, " ++ maybeDereference ++ s ++ ");"
       | otherwise        = \ s -> "Put(" ++ maybeDereference ++ s ++ ");"
     body = case single of
       Nothing ->
