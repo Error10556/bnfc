@@ -22,6 +22,7 @@ import BNFC.Backend.CPPVar.CPPUtil (unlinesToText)
 -- * The entrypoint.
 ------------------------------------------------------------------------
 
+-- | Creates the header library.
 createFiles :: MkFiles ()
 createFiles = do
   mkfile "variant.hpp" comm variantHpp
@@ -904,6 +905,7 @@ constexpr auto&& unsafe_get(Var&& var) noexcept {
 #endif // eof
 |]
 
+-- | An internal file.
 variantDetailHpp :: Doc
 variantDetailHpp = unlinesToText [s|
 #ifdef SWL_CPP_LIBRARY_VARIANT_HPP
@@ -1242,6 +1244,7 @@ inline constexpr T* addressof( T& obj ) noexcept {
 #endif // eof
 |]
 
+-- | An internal file.
 variantVisitHpp :: Doc
 variantVisitHpp = unlinesToText [s|
 #ifdef SWL_CPP_LIBRARY_VARIANT_HPP
