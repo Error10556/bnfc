@@ -62,6 +62,7 @@ makeClassicPrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
+    variantns = variantNamespace opts
     packwrap = wrapPackage opts
 
     hpp = makePrinterHeaderFile prettyPrinterClassName (unlinesToText [s|
@@ -117,7 +118,7 @@ public:
 #include "PrinterCommon.hpp"
 |] $++$ packwrap
       (printerUtilImpl
-      $++$ vcatSpaced (map (makePutMethod listItemStorage) printable)
+      $++$ vcatSpaced (map (makePutMethod variantns listItemStorage) printable)
       $++$ vcatSpaced (map makeCallOperator printable)
       $++$ makeShlImpls printable
       )
@@ -342,11 +343,12 @@ ClassicPrettyPrinter& ClassicPrettyPrinter::OnNewLine() {
 
 -- | Generates a method that prints objects of the given type.
 makePutMethod ::
-     ListItemStorage  -- ^ How to access list elements.
+     String           -- ^ The namespace of the @variant@ class.
+  -> ListItemStorage  -- ^ How to access list elements.
   -> PrintableSymbol  -- ^ What object to print.
   -> Doc
-makePutMethod listItemStorage = \case
-  PrintableNormalCategory s -> methodCategory s
+makePutMethod variantns listItemStorage = \case
+  PrintableNormalCategory s -> methodCategory variantns s
   PrintableList listDesc    -> methodList listItemStorage listDesc
   PrintableFunctionRule r   -> methodFunctionRule r
   PrintableCustomToken t    -> methodCustomToken t
@@ -422,9 +424,10 @@ ClassicPrettyPrinter& ClassicPrettyPrinter::Put(const Char& v) {
 
 -- | Generates a method that pretty-prints a value of the given nonterminal.
 methodCategory ::
-     String  -- ^ The category name.
+     String  -- ^ The namespace of the variant class
+  -> String  -- ^ The category name.
   -> Doc
-methodCategory name = linesToText
+methodCategory variantns name = linesToText
   [ concat
     ["ClassicPrettyPrinter& ClassicPrettyPrinter::Put(const "
     , name
@@ -432,7 +435,7 @@ methodCategory name = linesToText
     ]
     , "    int cur = coercionLevel;"
     , "    coercionLevel = coercLvl;"
-    , "    std::visit(*this, v);"
+    , "    " ++ variantns ++ "::visit(*this, v);"
     , "    coercionLevel = cur;"
     , "    return *this;"
   , "}"

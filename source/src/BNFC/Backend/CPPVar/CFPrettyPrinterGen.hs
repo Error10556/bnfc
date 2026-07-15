@@ -63,6 +63,7 @@ makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
+    variantns = variantNamespace opts
     packwrap = wrapPackage opts
 
     hpp = makePrinterHeaderFile prettyPrinterClassName (unlinesToText [s|
@@ -101,7 +102,7 @@ public:
 #include "PrinterCommon.hpp"
 |] $++$ packwrap
       (printerUtilImpl
-      $++$ vcatSpaced (map (makeMethod listItemStorage) printable)
+      $++$ vcatSpaced (map (makeMethod variantns listItemStorage) printable)
       $++$ makePrinterShlImplementations prettyPrinterClassName printable)
 
 ------------------------------------------------------------------------
@@ -188,11 +189,12 @@ ContextFreePrettyPrinter ContextFreePrettyPrinter::Dedented(
 
 -- | Generates a method that prints objects of the given type.
 makeMethod ::
-     ListItemStorage  -- ^ How to access list elements.
+     String           -- ^ The namespace of the @variant@ type.
+  -> ListItemStorage  -- ^ How to access list elements.
   -> PrintableSymbol  -- ^ What object to print.
   -> Doc
-makeMethod listItemStorage = \case
-  PrintableNormalCategory s -> methodCategory s
+makeMethod variantns listItemStorage = \case
+  PrintableNormalCategory s -> methodCategory variantns s
   PrintableList listDesc    -> methodList listItemStorage listDesc
   PrintableFunctionRule r   -> methodFunctionRule r
   PrintableCustomToken t    -> methodCustomToken t
@@ -384,11 +386,12 @@ void ContextFreePrettyPrinter::operator()(const Char& v) const {
 
 -- | Generates a method that pretty-prints a value of the given nonterminal.
 methodCategory ::
-     String  -- ^ The category name.
+     String  -- ^ The namespace of the @variant@ class.
+  -> String  -- ^ The category name.
   -> Doc
-methodCategory name = linesToText
+methodCategory variantns name = linesToText
   [ "void ContextFreePrettyPrinter::operator()(const " ++ name ++ "& v) const {"
-  , "    std::visit(*this, v);"
+  , "    " ++ variantns ++ "::visit(*this, v);"
   , "}"
   ]
 

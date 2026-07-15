@@ -17,8 +17,9 @@ module BNFC.Backend.CPPVar.PatternMatchingGen
   ) where
 
 import Data.String.QQ (s)
-import Text.PrettyPrint (Doc)
+import Text.PrettyPrint (Doc, empty)
 
+import qualified BNFC.Options as Options
 import BNFC.Backend.CPPVar.CPPUtil
 
 -- | The name of the header file.
@@ -26,8 +27,8 @@ patternMatchingFilename :: String
 patternMatchingFilename = "PatternMatching.hpp"
 
 -- | The contents of the header file.
-patternMatchingHpp :: Doc
-patternMatchingHpp = unlinesToText [s|
+patternMatchingHpp :: Options.SharedOptions -> Doc
+patternMatchingHpp opts = unlinesToText [s|
 /************************** Pattern Matching for C++ ***************************
 * You are highly encouraged to include this file to enable the following syntax:
 
@@ -96,6 +97,8 @@ public:
     using TCase::operator()...;
 };
 
+// std::variant
+
 template <class... TVariants, class TMatcher>
 decltype(auto) operator|(std::variant<TVariants...>&& variant, TMatcher&& vis) {
     return std::visit(std::forward<TMatcher>(vis), std::move(variant));
@@ -117,6 +120,38 @@ decltype(auto) operator|(std::tuple<TVariant...>&& vars, TMatcher&& vis) {
     return std::apply(
         [&vis](auto&&... args) {
             return std::visit(std::forward<TMatcher>(vis),
+                              std::forward<decltype(args)>(args)...);
+        },
+        std::move(vars));
+}
+|]
+  $++$ case Options.cppVariantsImpl opts of
+    Options.CppVariantsStd -> empty
+    Options.CppVariantsSwl -> unlinesToText [s|
+// swl::variant
+
+template <class... TVariants, class TMatcher>
+decltype(auto) operator|(swl::variant<TVariants...>&& variant, TMatcher&& vis) {
+    return swl::visit(std::forward<TMatcher>(vis), std::move(variant));
+}
+
+template <class... TVariants, class TMatcher>
+decltype(auto) operator|(const swl::variant<TVariants...>& variant,
+        TMatcher&& vis) {
+    return swl::visit(std::forward<TMatcher>(vis), variant);
+}
+
+template <class... TVariants, class TMatcher>
+decltype(auto) operator|(swl::variant<TVariants...>& variant, TMatcher&& vis) {
+    return swl::visit(std::forward<TMatcher>(vis), variant);
+}
+
+template <class... TVariant, class TMatcher>
+    requires (swl::is_variant_like<TVariant> && ...)
+decltype(auto) operator|(std::tuple<TVariant...>&& vars, TMatcher&& vis) {
+    return std::apply(
+        [&vis](auto&&... args) {
+            return swl::visit(std::forward<TMatcher>(vis),
                               std::forward<decltype(args)>(args)...);
         },
         std::move(vars));

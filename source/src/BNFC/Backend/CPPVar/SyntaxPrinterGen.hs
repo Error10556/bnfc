@@ -56,6 +56,7 @@ makeSyntaxPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
+    variantns = variantNamespace opts
     packwrap = wrapPackage opts
 
     hpp = makePrinterHeaderFile "SyntaxPrinter" (unlinesToText [s|
@@ -81,14 +82,15 @@ public:
 
     cpp = text "#include \"SyntaxPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""
-      $++$ packwrap (printerImpl listItemStorage printable)
+      $++$ packwrap (printerImpl variantns listItemStorage printable)
 
 -- | Generates the implementation.
 printerImpl ::
-     ListItemStorage    -- ^ How to access list elements.
+     String             -- ^ The namespace of the @variant@ class.
+  -> ListItemStorage    -- ^ How to access list elements.
   -> [PrintableSymbol]  -- ^ All symbols to generate methods for.
   -> Doc
-printerImpl listItemStorage symbols = unlinesToText [s|
+printerImpl variantns listItemStorage symbols = unlinesToText [s|
 SyntaxPrinter::SyntaxPrinter(const SyntaxPrinter* parent,
                              bool currentIndentIsBranch)
     : out(parent->out),
@@ -120,7 +122,7 @@ void SyntaxPrinter::PrintIndentAsIs() const {
         ++ printableClassName sym ++  "& v [[maybe_unused]]) const {")
       $+$ nest 4 (makeMethodBody sym) $+$ text "}"
     makeMethodBody = \case
-      PrintableNormalCategory _ -> text "std::visit(*this, v);"
+      PrintableNormalCategory _ -> text $ variantns ++ "::visit(*this, v);"
       PrintableList
         (PrintableListDescription {printListName = name}) -> linesToText
         [ "PrintIndentForHeader();"

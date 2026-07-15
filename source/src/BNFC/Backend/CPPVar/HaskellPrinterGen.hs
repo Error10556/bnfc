@@ -56,6 +56,7 @@ makeHaskellPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
+    variantns = variantNamespace opts
     packwrap = wrapPackage opts
 
     hpp = makePrinterHeaderFile "HaskellPrinter" (unlinesToText [s|
@@ -79,14 +80,15 @@ public:
 
     cpp = text "#include \"HaskellPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""
-      $++$ packwrap (printerImpl listItemStorage printable)
+      $++$ packwrap (printerImpl variantns listItemStorage printable)
 
 -- | Generates the implementation.
 printerImpl ::
-     ListItemStorage    -- ^ How to access list elements.
+     String             -- ^ The namespace of the @variant@ class.
+  -> ListItemStorage    -- ^ How to access list elements.
   -> [PrintableSymbol]  -- ^ All symbols to generate methods for.
   -> Doc
-printerImpl listItemStorage symbols = unlinesToText [s|
+printerImpl variantns listItemStorage symbols = unlinesToText [s|
 HaskellPrinter::HaskellPrinter(std::ostream& out, bool inExpression)
     : out(out)
     , inExpression(inExpression) {}
@@ -98,17 +100,18 @@ HaskellPrinter HaskellPrinter::PrintConstructorArg() const {
     return {out, true};
 }
 |]
-  $++$ vcatSpaced (map (makeMethod listItemStorage) symbols)
+  $++$ vcatSpaced (map (makeMethod variantns listItemStorage) symbols)
   $++$ makePrinterShlImplementations "HaskellPrinter" symbols
 
 -- | Generates an implementation of printing a class.
 makeMethod ::
-     ListItemStorage
+     String           -- ^ The namespace of the @variant@ type.
+  -> ListItemStorage
   -> PrintableSymbol  -- ^ A class to print.
   -> Doc
-makeMethod storeListItemsBy = \case
+makeMethod variantns storeListItemsBy = \case
   PrintableNormalCategory name -> methodWrap True name
-    $ text "std::visit(*this, v);"
+    $ text $ variantns ++ "::visit(*this, v);"
   PrintableList PrintableListDescription { printListName = name } ->
     let
       derefItem = case storeListItemsBy of
