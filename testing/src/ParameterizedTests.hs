@@ -500,16 +500,29 @@ parameters = concat
     -- C++ (std::variant)
   , [ cppvarBase
       { tpName = "C++ with std::variant"
-      , tpBnfcOptions = ["--cpp-var", "--store-list-items-by=value"]
+      , tpBnfcOptions =
+        [ "--cpp-var"
+        , "--variants-from=swl"
+        , "--store-list-items-by=value"
+        ]
       }
     , cppvarBase
       { tpName = "C++ with std::variant (with namespace)"
       , tpBnfcOptions =
-        [ "--cpp-var", "-p", "foobar", "--store-list-items-by=value"]
+        [ "--cpp-var"
+        , "--variants-from=swl"
+        , "-p"
+        , "foobar"
+        , "--store-list-items-by=value"
+        ]
       }
     , cppvarBase
       { tpName = "C++ with std::variant (with std::unique_ptr lists)"
-      , tpBnfcOptions = [ "--cpp-var", "--store-list-items-by=pointer"]
+      , tpBnfcOptions =
+        [ "--cpp-var"
+        , "--variants-from=swl"
+        , "--store-list-items-by=pointer"
+        ]
       }
     ]
     -- Agda
