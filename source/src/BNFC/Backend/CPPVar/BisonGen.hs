@@ -89,6 +89,11 @@ data BisonUtils = BisonUtils
   , namespacePrefix      :: !String
     -- ^ If a package name has been given, equals "package_name::".
     -- Otherwise, the empty string.
+  , preferredVariantImpl :: !Options.CppVariantsImplementation
+    -- ^ The @variant@ implementation to use for abstract syntax nodes.
+  , preferredVariantNS   :: !String
+    -- ^ The namespace of the preferred @variant@ class:
+    -- currently "std" or "swl".
   }
 
 -- | Constructs a t'BisonUtils' record respecting the
@@ -100,13 +105,20 @@ newBisonUtils opts = case Options.inPackage opts of
     , namespaceWrap        = id
     , namespaceNameOrEmpty = ""
     , namespacePrefix      = ""
+    , preferredVariantImpl = variantImpl
+    , preferredVariantNS   = variantns
     }
   Just ns -> BisonUtils
     { inPackage            = True
     , namespaceWrap        = wrapNamespace ns
     , namespaceNameOrEmpty = ns
     , namespacePrefix      = ns ++ "::"
+    , preferredVariantImpl = variantImpl
+    , preferredVariantNS   = variantns
     }
+  where
+    variantImpl = Options.cppVariantsImpl opts
+    variantns = variantNamespace opts
 
 -- | Information about a literal token
 -- (String, Ident, Integer, Double, or Char).
@@ -208,17 +220,27 @@ codeRequires ::
      BisonUtils
   -> [CF.Cat]  -- ^ Grammar entrypoints.
   -> Doc
-codeRequires utils entrypts = bisonBraces "%code requires" $ linesToText
-  [ "#include <string_view>"
-  , "#include <optional>"
-  , "#include <variant>"
-  , "#include \"Absyn.hpp\""
-  ] $++$ text "using yyscan_t = void*;"
+codeRequires utils entrypts = bisonBraces "%code requires"
+  $ linesToText (concat
+  [ [ "#include <string_view>"
+    , "#include <optional>"
+    , "#include <variant>"
+    ]
+  , case preferredVariantImpl utils of
+      Options.CppVariantsStd -> []
+      Options.CppVariantsSwl -> ["#include \"variant.hpp\""]
+  , [ "#include \"Absyn.hpp\""
+    , ""
+    , "using yyscan_t = void*;"
+    ]
+  ])
   $++$ namespaceWrap utils
-    (text ("using ParseResultVariant = std::variant<"
+    (text ("using ParseResultVariant = " ++ variantns ++ "::variant<"
       ++ intercalate ", "
         [namespacePrefix utils ++ catNameNoCoerc cat | cat <- entrypts]
       ++ ">;"))
+  where
+    variantns = preferredVariantNS utils
 
 -- | Generates declarations of nonterminals (BNFC categories).
 nonterms :: GroupedRules -> Doc
@@ -250,7 +272,9 @@ EnsureParsedType(ParseResultOrError&& parsed) {
     if (auto* err = std::get_if<Parser::syntax_error>(&parsed))
         return std::move(*err);
     auto& var = std::get<ParseResultVariant>(parsed);
-    if (auto* target = std::get_if<T>(&var))
+|]
+    $+$ text ("    if (auto* target = " ++ variantns ++ "::get_if<T>(&var))")
+    $+$ unlinesToText [s|
         return std::move(*target);
     std::string msg = "Unexpected syntax: tried to parse ";
     msg
@@ -280,6 +304,7 @@ std::variant<T, Parser::syntax_error> ParseAs(std::string_view str) {
     maybeImportParserClass
       | inPackage utils = empty
       | otherwise       = text "using yy::Parser;"
+    variantns = preferredVariantNS utils
 
 -- | Generates a bit of code that makes the lexer available.
 codeLex :: BisonUtils -> Doc
@@ -543,7 +568,8 @@ codeSection utils opts = namespaceWrap utils $
   , "}"
   , ""
   , "std::string_view ParsedNodeName(const ParseResultVariant& var) {"
-  , "    return std::visit([](const auto& node) -> std::string_view {"
+  , "    return " ++ variantns
+    ++ "::visit([](const auto& node) -> std::string_view {"
   , "        return reflection::SyntaxNodeName<std::decay_t<decltype(node)>>;"
   , "    }, var);"
   , "}"
@@ -552,3 +578,4 @@ codeSection utils opts = namespaceWrap utils $
     scannerName = case Options.inPackage opts of
       Nothing -> "Scanner"
       Just ns -> ns ++ "Scanner"
+    variantns = preferredVariantNS utils
