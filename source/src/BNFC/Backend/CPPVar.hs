@@ -142,7 +142,7 @@ makeCppVar opts (CFG
   mkfile (FlexGen.flexFilename opts) comment flexFile
   mkfile (BisonGen.bisonFilename opts) comment bisonFile
   mkfile PatternMatchingGen.patternMatchingFilename comment
-    PatternMatchingGen.patternMatchingHpp
+    (PatternMatchingGen.patternMatchingHpp opts)
   mkfile PrinterCommonGen.printerCommonHppFilename comment
     $ PrinterCommonGen.makePrinterCommonHpp opts
   mkfile PrinterCommonGen.printerCommonCppFilename comment
