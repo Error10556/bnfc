@@ -142,6 +142,24 @@ parseListItemStorageType = \case
   "prefer_value" -> ItemsStoredByValueIfNoLoops
   other          -> error $ "Unrecognized ListItemStorageType: " ++ other
 
+-- | What @variant@ implementation to use (C++ with variants backend).
+data CppVariantsImplementation
+  = CppVariantsStd  -- ^ STL variants.
+  | CppVariantsSwl  -- ^ Custom implementation.
+  deriving (Eq, Ord, Enum, Bounded)
+
+instance Show CppVariantsImplementation where
+  show = \case
+    CppVariantsStd -> "std"
+    CppVariantsSwl -> "swl"
+
+-- | Interprets user-specified --variants argument
+parseCppVariantsImplementation :: String -> CppVariantsImplementation
+parseCppVariantsImplementation = \case
+  "std" -> CppVariantsStd
+  "swl" -> CppVariantsSwl
+  other -> error $ "Unrecognized CppVariantsImplementation: " ++ other
+
 -- | How to represent token content in the Haskell backend?
 
 data TokenText
@@ -189,7 +207,8 @@ data SharedOptions = Options
   , linenumbers :: RecordPositions -- ^ Add and set line_number field for syntax classes
   , ansi        :: Ansi            -- ^ Restrict to the ANSI language standard (C/C++)?
   --- C++-with-variants specific:
-  , listItemStorage :: ListItemStorageType -- ^ What lists contain: values or pointers.
+  , listItemStorage :: ListItemStorageType       -- ^ What lists contain: values or pointers.
+  , cppVariantsImpl :: CppVariantsImplementation -- ^ What kind of variants to use.
   --- Haskell specific:
   , inDir         :: Bool        -- ^ Option @-d@.
   , positions     :: Positions   -- ^ Options @--positions@ (or legacy @--functor@). Make AST functorial? What to include?
@@ -228,6 +247,7 @@ defaultOptions = Options
   , ansi            = BeyondAnsi
   -- C++-with-variants specific
   , listItemStorage = ItemsStoredByValueIfNoLoops
+  , cppVariantsImpl = CppVariantsStd
   -- Haskell specific
   , inDir           = False
   , positions       = None
@@ -287,6 +307,11 @@ printOptions opts = unwords . concat $
   , [ "-p " ++ p          | p <- maybeToList $ inPackage opts   ]
   , unlessDefault linenumbers opts $ const [ "-l" ]
   , unlessDefault ansi opts $ const [ "--ansi" ]
+  -- C++ with variants:
+  , unlessDefault listItemStorage opts
+    $ ( : []) . ("--store-list-items-by=" ++ ) . show
+  , unlessDefault cppVariantsImpl opts
+    $ ( : []) . ("--variants-from=" ++ ) . show
   -- Haskell options:
   , [ "-d"                | inDir opts                          ]
 
@@ -417,6 +442,18 @@ specificOptions =
           , "For some C++ STL implementations, the \"value\" option will fail"
           , "if the grammar has lists that indirectly contain themselves."
           , "The default is \"prefer-value\"."
+          ]
+    , [TargetCppVariants])
+  , ( Option [] ["variants-from"]
+      (ReqArg
+        (\ n o -> o { cppVariantsImpl = parseCppVariantsImplementation n })
+        (intercalate "|"
+          $ map show ([minBound..] :: [CppVariantsImplementation])))
+        $ unlines
+          [ "Specify the variant class implementation to use."
+          , "swl::variant requires C++20, gcc10+ or clang14+, but"
+          , "compiles faster and produces much smaller binaries."
+          , "The default is \"std\"."
           ]
     , [TargetCppVariants])
   -- Java backend:
