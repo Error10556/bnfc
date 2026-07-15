@@ -14,7 +14,7 @@ module BNFC.Backend.CPPVar.MakefileGen
 
 import Data.String.QQ (s)
 
-import Text.PrettyPrint (Doc, text, ($+$))
+import Text.PrettyPrint (Doc, text, ($+$), empty)
 import qualified BNFC.Options as Options
 
 import BNFC.Backend.CPPVar.CPPUtil
@@ -24,12 +24,13 @@ makeMakefile ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> Doc
 makeMakefile opts =
-  variables langname makefileName
+  variables variantsImpl langname makefileName
   $++$ helpTextVariable langname
-  $++$ rules langname
+  $++$ rules variantsImpl langname
   where
     langname = Options.lang opts
     Just makefileName = Options.optMake opts
+    variantsImpl = Options.cppVariantsImpl opts
 
 ------------------------------------------------------------------------
 -- * Utility.
@@ -70,43 +71,59 @@ makeHelpTable80 = makeHelpTable 80
 
 -- | Variable definitions.
 variables ::
-     String  -- ^ Language name.
+     Options.CppVariantsImplementation
+  -> String  -- ^ Language name.
   -> String  -- ^ Makefile name.
   -> Doc
-variables langname makefileName = linesToText
-  [ "CXXFLAGS = -std=c++17 -Wall -Wextra"
-  , "CXXFLAGS_BISON = $(CXXFLAGS) -Wno-unused-but-set-variable"
-  , ""
-  , "OBJECTS = Absyn.o \\"
-  , "\tClassicPrettyPrinter.o \\"
-  , "\tContextFreePrettyPrinter.o \\"
-  , "\tHaskellPrinter.o \\"
-  , "\tPrinterCommon.o \\"
-  , "\tSyntaxPrinter.o \\"
-  , "\tTest.o \\"
-  , "\t" ++ langname ++ ".lex.o \\"
-  , "\t" ++ langname ++ ".tab.o"
-  , ""
-  , "ARCHIVES = lib" ++ langname ++ "Parser.a lib" ++ langname ++ "Printer.a"
-  , ""
-  , "BNFC_GENERATED = Absyn.cpp \\"
-  , "\tAbsyn.hpp \\"
-  , "\tClassicPrettyPrinter.cpp \\"
-  , "\tClassicPrettyPrinter.hpp \\"
-  , "\tContextFreePrettyPrinter.cpp \\"
-  , "\tContextFreePrettyPrinter.hpp \\"
-  , "\tHaskellPrinter.cpp \\"
-  , "\tHaskellPrinter.hpp \\"
-  , "\tPatternMatching.hpp \\"
-  , "\tPrinterCommon.cpp \\"
-  , "\tPrinterCommon.hpp \\"
-  , "\tSyntaxPrinter.cpp \\"
-  , "\tSyntaxPrinter.hpp \\"
-  , "\tTest.cpp \\"
-  , "\t" ++ langname ++ ".l \\"
-  , "\t" ++ langname ++ ".ypp \\"
-  , "\t" ++ makefileName
-  ] $++$ unlinesToText [s|
+variables variantsImpl langname makefileName = linesToText (concat
+  [ [ "CXXFLAGS = -std=c++" ++ standard ++ " -Wall -Wextra"
+    , "CXXFLAGS_BISON = $(CXXFLAGS) -Wno-unused-but-set-variable"
+    , ""
+    , "OBJECTS = Absyn.o \\"
+    , "\tClassicPrettyPrinter.o \\"
+    , "\tContextFreePrettyPrinter.o \\"
+    , "\tHaskellPrinter.o \\"
+    , "\tPrinterCommon.o \\"
+    , "\tSyntaxPrinter.o \\"
+    , "\tTest.o \\"
+    , "\t" ++ langname ++ ".lex.o \\"
+    , "\t" ++ langname ++ ".tab.o"
+    , ""
+    , "ARCHIVES = lib" ++ langname ++ "Parser.a lib" ++ langname ++ "Printer.a"
+    , ""
+    , "BNFC_GENERATED = Absyn.cpp \\"
+    , "\tAbsyn.hpp \\"
+    , "\tClassicPrettyPrinter.cpp \\"
+    , "\tClassicPrettyPrinter.hpp \\"
+    , "\tContextFreePrettyPrinter.cpp \\"
+    , "\tContextFreePrettyPrinter.hpp \\"
+    , "\tHaskellPrinter.cpp \\"
+    , "\tHaskellPrinter.hpp \\"
+    , "\tPatternMatching.hpp \\"
+    , "\tPrinterCommon.cpp \\"
+    , "\tPrinterCommon.hpp \\"
+    , "\tSyntaxPrinter.cpp \\"
+    , "\tSyntaxPrinter.hpp \\"
+    , "\tTest.cpp \\"
+    ]
+  , case variantsImpl of
+    Options.CppVariantsStd -> []
+    Options.CppVariantsSwl ->
+      [ "\tvariant_detail.hpp \\"
+      , "\tvariant.hpp \\"
+      , "\tvariant_visit.hpp \\"
+      ]
+  , [ "\t" ++ langname ++ ".l \\"
+    , "\t" ++ langname ++ ".ypp \\"
+    , "\t" ++ makefileName
+    ]
+  ])
+  $++$ (case variantsImpl of
+    Options.CppVariantsStd -> empty
+    Options.CppVariantsSwl ->
+      text "SWL_HEADERS = variant_detail.hpp variant.hpp variant_visit.hpp"
+  )
+  $++$ unlinesToText [s|
 TEST_DFLAGS =
 ifneq ($(NO_PRETTY),)
 TEST_DFLAGS += -DNO_PRETTY
@@ -149,6 +166,10 @@ ifeq ($(NO_HASKELL),)
 TEST_PRINTER_HEADERS += HaskellPrinter.hpp
 endif
 |]
+  where
+    standard = case variantsImpl of
+      Options.CppVariantsStd -> "17"
+      Options.CppVariantsSwl -> "20"
 
 -- | A help table for phony targets.
 phonyHelp ::
@@ -198,9 +219,10 @@ endef
 |]
 
 rules ::
-     String  -- ^ Language name.
+     Options.CppVariantsImplementation
+  -> String  -- ^ Language name.
   -> Doc
-rules langname = linesToText
+rules variantsImpl langname = linesToText
   [ ".PHONY: all clean mostlyclean distclean default help"
   , ""
   , "default: all"
@@ -237,12 +259,12 @@ rules langname = linesToText
   , "\tbison " ++ langname ++ ".ypp"
   , ""
   , "CXX_COMPILE = $(CXX) $(CXXFLAGS) -c -o $@ $<"
-  , "Absyn.o: Absyn.cpp Absyn.hpp"
+  , "Absyn.o: Absyn.cpp Absyn.hpp" ++ maybeSwlHeaders
   , "\t$(CXX_COMPILE)"
   , ""
   , langname ++ ".tab.o: " ++ langname ++ ".tab.cpp "
     ++ langname ++ ".tab.hpp \\"
-  , "\tAbsyn.hpp PatternMatching.hpp"
+  , "\tAbsyn.hpp PatternMatching.hpp" ++ maybeSwlHeaders
   , "\t$(CXX) $(CXXFLAGS_BISON) -c -o $@ $<"
   , ""
   , langname ++ ".lex.o: " ++ langname ++ ".lex.cpp " ++ langname ++ ".tab.hpp"
@@ -252,19 +274,20 @@ rules langname = linesToText
   , "\t$(CXX_COMPILE)"
   , ""
   , "HaskellPrinter.o: HaskellPrinter.cpp HaskellPrinter.hpp \\"
-  , "\tAbsyn.hpp PrinterCommon.hpp"
+  , "\tAbsyn.hpp PrinterCommon.hpp" ++ maybeSwlHeaders
   , "\t$(CXX_COMPILE)"
   , ""
   , "ClassicPrettyPrinter.o: ClassicPrettyPrinter.cpp \\"
-  , "\tClassicPrettyPrinter.hpp Absyn.hpp PrinterCommon.hpp"
+  , "\tClassicPrettyPrinter.hpp Absyn.hpp PrinterCommon.hpp" ++ maybeSwlHeaders
   , "\t$(CXX_COMPILE)"
   , ""
   , "ContextFreePrettyPrinter.o: ContextFreePrettyPrinter.cpp \\"
   , "\tContextFreePrettyPrinter.hpp Absyn.hpp PrinterCommon.hpp"
+    ++ maybeSwlHeaders
   , "\t$(CXX_COMPILE)"
   , ""
   , "SyntaxPrinter.o: SyntaxPrinter.cpp SyntaxPrinter.hpp \\"
-  , "\tAbsyn.hpp PrinterCommon.hpp"
+  , "\tAbsyn.hpp PrinterCommon.hpp" ++ maybeSwlHeaders
   , "\t$(CXX_COMPILE)"
   , ""
   , "AR_COMPILE = $(AR) $(ARFLAGS) $@ $^"
@@ -276,10 +299,14 @@ rules langname = linesToText
   , "\t$(AR_COMPILE)"
   , ""
   , "Test.o: Test.cpp Absyn.hpp " ++ langname ++ ".tab.hpp "
-    ++ "PatternMatching.hpp $(TEST_PRINTER_HEADERS)"
+    ++ "PatternMatching.hpp $(TEST_PRINTER_HEADERS)" ++ maybeSwlHeaders
   , "\t$(CXX) $(CXXFLAGS) $(TEST_DFLAGS) -c -o $@ $<"
   , ""
   , "Test" ++ langname ++ ": Test.o lib" ++ langname ++ "Parser.a lib"
     ++ langname ++ "Printer.a"
   , "\t$(CXX) $(LDFLAGS) $^ -o Test" ++ langname
   ]
+  where
+    maybeSwlHeaders = case variantsImpl of
+      Options.CppVariantsStd -> ""
+      Options.CppVariantsSwl -> " $(SWL_HEADERS)"
