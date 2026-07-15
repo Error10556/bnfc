@@ -185,7 +185,7 @@ data ClassDeclaration
     -- not the list category itself.
   | NormalClassDeclaration  !CF.Rule  -- ^ A normal class (BNFC label).
   | VariantClassDeclaration !String ![String]
-    -- ^ A @std::variant@ type synonym (BNFC category).
+    -- ^ A @std/swl::variant@ class (BNFC category).
   | ForwardDeclaration String         -- ^ Literally @class <name>;@.
 
 data FullClassDeclaration
@@ -195,7 +195,7 @@ data FullClassDeclaration
     -- not the list category itself.
   | NormalFullDeclaration  !CF.Rule  -- ^ A normal class (BNFC label).
   | VariantFullDeclaration !String ![String]
-    -- ^ A @std::variant@ type synonym (BNFC category).
+    -- ^ A @std/swl::variant@ class (BNFC category).
 
 -- | Generalize a t'FullClassDeclaration' without changing.
 full2justClassDecl :: FullClassDeclaration -> ClassDeclaration

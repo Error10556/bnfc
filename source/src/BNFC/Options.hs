@@ -77,7 +77,7 @@ instance Show Target where
   show TargetC            = "C"
   show TargetCpp          = "C++"
   show TargetCppNoStl     = "C++ (without STL)"
-  show TargetCppVariants  = "C++ (with std::variant)"
+  show TargetCppVariants  = "C++ (with variants)"
   show TargetHaskell      = "Haskell"
   show TargetHaskellGadt  = "Haskell (with GADT)"
   show TargetLatex        = "Latex"
@@ -114,7 +114,7 @@ data Ansi = Ansi | BeyondAnsi
 -- | Package name (C++ and Java backends).
 type InPackage = Maybe String
 
--- | How list items are stored (C++ with @std::variant@ backend).
+-- | How list items are stored (C++ with variants backend).
 data ListItemStorageType
   = ItemsStoredAlwaysByValue  -- ^ As-is (@std::deque<ItemClass>@).
   | ItemsStoredAlwaysByPointer
@@ -379,7 +379,7 @@ targetOptions =
   , Option "" ["cpp-nostl"]     (NoArg (\o -> o {target = TargetCppNoStl}))
     "Output C++ code (without STL) for use with FLex and Bison"
   , Option "" ["cpp-var"]       (NoArg (\o -> o {target = TargetCppVariants}))
-    "Output C++17 code (heavily using std::variant) for use with FLex and Bison"
+    "Output C++17 code (using std/swl::variant) for use with FLex and Bison"
   , Option "" ["ocaml"]         (NoArg (\o -> o {target = TargetOCaml}))
     "Output OCaml code for use with ocamllex and ocamlyacc"
   , Option "" ["ocaml-menhir"]  (NoArg (\ o -> o{ target = TargetOCaml, ocamlParser = Menhir }))
