@@ -70,6 +70,7 @@ makeAbsyn opts literals pragmas entrypts mergedGroupedRules = GeneratedAbsyn
   , absynListItemStorage = listStorage
   }
   where
+    variantns = variantNamespace opts
     maybeNamespace = wrapPackage opts
     StructWithReflection
       { structWithReflection_struct = hppTokenStructs
@@ -81,7 +82,7 @@ makeAbsyn opts literals pragmas entrypts mergedGroupedRules = GeneratedAbsyn
       { absynNodeCode_declaration = hppClassDecls
       , absynNodeCode_reflection = hppClassRefl
       , absynNodeCode_implementation = cppRules
-      } = defineAllClasses listStorage classOrder
+      } = defineAllClasses variantns listStorage classOrder
     hppFunctions = declareFunctions pragmas
     cppFunctions = translateFunctions pragmas
     hppMain = hppTokenStructs $++$ hppClassDecls $++$ hppFunctions
@@ -89,7 +90,7 @@ makeAbsyn opts literals pragmas entrypts mergedGroupedRules = GeneratedAbsyn
       ["ENTRYPOINT(" ++ catNameNoCoerc cat ++ ");" | cat <- entrypts]
     hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppClassRefl
       $++$ entrypointRefl $++$ reflectionUndefs
-    hpp = headerHead $++$ maybeNamespace
+    hpp = headerHead (Options.cppVariantsImpl opts) $++$ maybeNamespace
       (hppMain $++$ wrapNamespace "reflection" hppRefl)
     cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
       $++$ maybeNamespace
@@ -441,13 +442,17 @@ topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
 ------------------------------------------------------------------------
 
 -- | @include@ directives at the top.
-headerHead :: Doc
-headerHead = linesToText
+headerHead ::
+     Options.CppVariantsImplementation
+  -> Doc
+headerHead variantImpl = linesToText
   [ "#pragma once"
   , "#include <memory>"
   , "#include <string>"
   , "#include <deque>"
-  , "#include <variant>"
+  , case variantImpl of
+      Options.CppVariantsStd -> "#include <variant>"
+      Options.CppVariantsSwl -> "#include \"variant.hpp\""
   ]
 
 -- | Declaration of templates in the @reflection@ namespace.
@@ -700,17 +705,18 @@ data AbsynNodeCode = AbsynNodeCode
 -- | Generates declarations, reflection properties, and implementations
 -- for all classes: categories, list categories, and rules.
 defineAllClasses ::
-     ListItemStorage     -- ^ How to store list elements.
+     String              -- ^ The namespace of the @variant@ class.
+  -> ListItemStorage     -- ^ How to store list elements.
   -> [ClassDeclaration]  -- ^ Declarations to generate.
   -> AbsynNodeCode
-defineAllClasses storeListItemsBy decls = foldr (\ decl code ->
+defineAllClasses variantns storeListItemsBy decls = foldr (\ decl code ->
     case decl of
       ListClassDeclaration elemCat ->
         vcatSpaced (listDef storeListItemsBy elemCat) code
       NormalClassDeclaration rule ->
         vcatSpaced (ruleDef rule) code
       VariantClassDeclaration name vars ->
-        vcatSpaced (variantDef name vars) code
+        vcatSpaced (variantDef variantns name vars) code
       ForwardDeclaration name -> code
         {absynNodeCode_declaration =
           text ("class " ++ name ++ ";") $+$ absynNodeCode_declaration code}
@@ -841,10 +847,11 @@ listDef storeBy elemCat = AbsynNodeCode
 
 -- | Generates code for a v'VariantClassDeclaration'.
 variantDef ::
-     String    -- ^ The name of the variant class.
+     String    -- ^ The namespace of the @variant@ class.
+  -> String    -- ^ The name of the variant class.
   -> [String]  -- ^ The names of variants (labels).
   -> AbsynNodeCode
-variantDef name variants = AbsynNodeCode
+variantDef variantns name variants = AbsynNodeCode
   { absynNodeCode_declaration    = case variants of
     [singleVariant] -> classTop $+$ singleVariantBody singleVariant
     _               -> classTop $+$ text "};"
@@ -856,7 +863,7 @@ variantDef name variants = AbsynNodeCode
       [ concat
         [ "class "
         , name
-        , " : public std::variant<"
+        , " : public " ++ variantns ++ "::variant<"
         , intercalate ", " variants
         , "> {"
         ]
@@ -865,11 +872,13 @@ variantDef name variants = AbsynNodeCode
       ]
     singleVariantBody singleVariant = linesToText
       [ "    inline class " ++ singleVariant ++ "& " ++ singleVariant ++ "() {"
-      , "        return std::get<class " ++ singleVariant ++ ">(*this);"
+      , "        return " ++ variantns ++ "::get<class "
+        ++ singleVariant ++ ">(*this);"
       , "    }"
       , "    inline const class " ++ singleVariant ++ "& " ++ singleVariant
         ++ "() const {"
-      , "        return std::get<class " ++ singleVariant ++ ">(*this);"
+      , "        return " ++ variantns ++ "::get<class "
+        ++ singleVariant ++ ">(*this);"
       , "    }"
       , "};"
       ]

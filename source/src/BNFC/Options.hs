@@ -14,6 +14,7 @@ module BNFC.Options
   , AlexVersion(..), HappyMode(..), OCamlParser(..), JavaLexerParser(..)
   , RecordPositions(..), TokenText(..), Positions(..)
   , ListItemStorageType(..)
+  , CppVariantsImplementation(..)
   , Ansi(..)
   , InPackage
   , removedIn290

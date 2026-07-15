@@ -31,6 +31,7 @@ import qualified BNFC.Backend.CPPVar.HaskellPrinterGen as HaskellPrinterGen
 import qualified BNFC.Backend.CPPVar.TestGen as TestGen
 import qualified BNFC.Backend.CPPVar.PrinterCommonGen as PrinterCommonGen
 import qualified BNFC.Backend.CPPVar.MakefileGen as MakefileGen
+import qualified BNFC.Backend.CPPVar.SWLVariant as SWLVariant
 
 {-| Generates the following files (@language@ is the basename of the LBNF
 grammar description file, as given by 'BNFC.Options.lang'):
@@ -131,6 +132,11 @@ makeCppVar opts (CFG
       , cppSourceText = cprettyCpp
       } = ClassicPrettyPrinterGen.makeClassicPrettyPrinter
         opts printables listItemStorage
+
+  case cppVariantsImpl opts of
+    CppVariantsStd -> return ()
+    CppVariantsSwl -> SWLVariant.createFiles
+
   mkfile AbsynGen.absynHppFilename comment absynHpp
   mkfile AbsynGen.absynCppFilename comment absynCpp
   mkfile (FlexGen.flexFilename opts) comment flexFile

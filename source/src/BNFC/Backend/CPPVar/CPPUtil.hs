@@ -9,6 +9,7 @@ module BNFC.Backend.CPPVar.CPPUtil
   (
     -- * C++ files
     CPPHeaderSourcePair(..)
+  , variantNamespace
 
     -- * Additional functions on 'Text.PrettyPrint.Doc'
   , ($++$)
@@ -72,6 +73,13 @@ data CPPHeaderSourcePair = CPPHeaderSourcePair
   , cppSourceText :: !Doc
     -- ^ The content of the source file.
   }
+
+-- | Returns the namespace containing the preferred @variant@ implementation.
+variantNamespace :: Options.SharedOptions -> String
+variantNamespace = (\case
+    Options.CppVariantsStd -> "std"
+    Options.CppVariantsSwl -> "swl"
+  ) . Options.cppVariantsImpl
 
 ------------------------------------------------------------------------
 -- * Additional functions on 'Text.PrettyPrint.Doc'.
