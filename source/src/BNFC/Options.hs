@@ -14,6 +14,7 @@ module BNFC.Options
   , AlexVersion(..), HappyMode(..), OCamlParser(..), JavaLexerParser(..)
   , RecordPositions(..), TokenText(..), Positions(..)
   , ListItemStorageType(..)
+  , DefaultBisonEntrypoint(..)
   , Ansi(..)
   , InPackage
   , removedIn290
@@ -142,6 +143,13 @@ parseListItemStorageType = \case
   "prefer_value" -> ItemsStoredByValueIfNoLoops
   other          -> error $ "Unrecognized ListItemStorageType: " ++ other
 
+-- | (C++ with variants) What categories to generate entrypoints for if no
+-- entrypoint pragmas are given?
+data DefaultBisonEntrypoint
+  = BisonAllCategories  -- ^ For all defined categories.
+  | BisonFirstCategory  -- ^ For the first defined category.
+  deriving (Eq, Ord, Show, Bounded, Enum)
+
 -- | How to represent token content in the Haskell backend?
 
 data TokenText
@@ -190,6 +198,7 @@ data SharedOptions = Options
   , ansi        :: Ansi            -- ^ Restrict to the ANSI language standard (C/C++)?
   --- C++-with-variants specific:
   , listItemStorage :: ListItemStorageType -- ^ What lists contain: values or pointers.
+  , defaultBisonEntrypoints :: DefaultBisonEntrypoint  -- ^ what to include if given no "entrypoint" pragmas.
   --- Haskell specific:
   , inDir         :: Bool        -- ^ Option @-d@.
   , positions     :: Positions   -- ^ Options @--positions@ (or legacy @--functor@). Make AST functorial? What to include?
@@ -228,6 +237,7 @@ defaultOptions = Options
   , ansi            = BeyondAnsi
   -- C++-with-variants specific
   , listItemStorage = ItemsStoredByValueIfNoLoops
+  , defaultBisonEntrypoints = BisonAllCategories
   -- Haskell specific
   , inDir           = False
   , positions       = None
@@ -287,6 +297,12 @@ printOptions opts = unwords . concat $
   , [ "-p " ++ p          | p <- maybeToList $ inPackage opts   ]
   , unlessDefault linenumbers opts $ const [ "-l" ]
   , unlessDefault ansi opts $ const [ "--ansi" ]
+
+  -- C++ with variants options:
+  , unlessDefault listItemStorage opts
+    $ \ o -> ["--store-list-items-by=" ++ show o]
+  , unlessDefault defaultBisonEntrypoints opts
+    $ const ["--bison-default-start-first"]
   -- Haskell options:
   , [ "-d"                | inDir opts                          ]
 
@@ -417,6 +433,13 @@ specificOptions =
           , "For some C++ STL implementations, the \"value\" option will fail"
           , "if the grammar has lists that indirectly contain themselves."
           , "The default is \"prefer-value\"."
+          ]
+    , [TargetCppVariants])
+  , ( Option [] ["bison-default-start-first"]
+      (NoArg (\ o -> o { defaultBisonEntrypoints = BisonFirstCategory }))
+        $ unlines
+          [ "Use only the first defined category as the entrypoint if the"
+          , "grammar does not declare entrypoints explicitly."
           ]
     , [TargetCppVariants])
   -- Java backend:
