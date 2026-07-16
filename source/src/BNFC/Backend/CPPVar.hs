@@ -92,7 +92,8 @@ makeCppVar opts (CFG
   let
     groupedRules       = CPPUtil.groupRules cfRules
     mergedGroupedRules = CPPUtil.mergeCoercCats groupedRules
-    entrypts           = CPPUtil.extractEntrypoints cfPragmas groupedRules
+    entrypts           = CPPUtil.extractEntrypoints
+      (defaultBisonEntrypoints opts) cfPragmas groupedRules cfRules
     cfTerminals = cfSymbols ++ cfKeywords
     AbsynGen.GeneratedAbsyn
       { absynCode = CPPUtil.CPPHeaderSourcePair

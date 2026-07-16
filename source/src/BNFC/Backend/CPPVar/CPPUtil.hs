@@ -243,27 +243,40 @@ removePrecedenceFromCats = Set.toList . Set.fromList
   . map removePrecedenceFromCat
 
 -- | Returns a list of categories to use as parse targets.
--- If the grammar does not specify them explicitly, returns all categories that
+--
+-- If the grammar does not specify them explicitly and
+-- @--bison-default-start-first@ is not given, returns all categories that
 -- __cannot be converted__ to others without additional syntax.
+--
+-- If the grammar does not specify them explicitly and that option is given,
+-- returns the first defined category.
+--
 -- __Keeps__ precedence information.
 -- Deduplicates specified categories.
 extractEntrypoints ::
-     [CF.Pragma]   -- ^ Grammar pragmas (contain @entrypoint@ declarations).
+     Options.DefaultBisonEntrypoint -- ^ Preferred default behaviour.
+  -> [CF.Pragma]   -- ^ Grammar pragmas (contain @entrypoint@ declarations).
   -> GroupedRules  -- ^ Rules grouped by category.
+  -> [CF.Rule]     -- ^ Ungrouped rules in the original order.
   -> [CF.Cat]
-extractEntrypoints pragmas (GroupedRules rulemap)
-  | null res  =
-    -- Set.toList $ Set.fromList
-    -- $ map (removePrecedenceFromCat . nontoken2cat) $ Map.keys rulemap
-    let
-      allCats  = map nontoken2cat $ Map.keys rulemap
-      allRules = concat $ Map.elems rulemap
-      badCats  =
-        [ onlycat
-        | CF.Rule { rhsRule = [Left onlycat], internal = CF.Parsable }
-          <- allRules
-        ]
-    in Set.toList $ Set.fromList allCats `Set.difference` Set.fromList badCats
+extractEntrypoints deflt pragmas (GroupedRules rulemap) cfRules
+  -- (CF.Rule { valRCat = CF.WithPosition { wpThing = firstCat } })
+  | null res  = case deflt of
+    Options.BisonAllCategories ->
+      let
+        allCats  = map nontoken2cat $ Map.keys rulemap
+        allRules = concat $ Map.elems rulemap
+        badCats  =
+          [ onlycat
+          | CF.Rule { rhsRule = [Left onlycat], internal = CF.Parsable }
+            <- allRules
+          ]
+      in Set.toList $ Set.fromList allCats `Set.difference` Set.fromList badCats
+    Options.BisonFirstCategory ->
+      let
+        (CF.Rule { valRCat = CF.WithPosition { wpThing = firstCat } }) : _
+          = cfRules
+      in [firstCat]
   | otherwise = res
   where
     res = Set.toList $ Set.fromList $ map CF.wpThing
