@@ -555,6 +555,15 @@ parameters = concat
         }
     cppvarBase = base
         { tpBuild = do
+          -- Hack: since most grammars do not specify the real entrypoint AND
+          -- some of them do need all categories as entrypoints,
+          -- we first see if Bison complains about conflicts if we try to use
+          -- all categories as entrypoints.
+          -- If it does complain, we regenerate the parser, but with only one
+          -- entrypoint (the first defined category).
+            cmd "sh" ["-c",
+              "make bison BISONFLAGS=-Werror || make bnfc BNFCFLAGS="
+              ++ "'$(OLD_BNFCFLAGS) --bison-default-start-first'"]
             cmd "make" ["-f", tpMakefile, "NO_PRETTY=1", "NO_TREE=1",
               ("CXXFLAGS=-fsanitize=address -fsanitize=leak "
                 ++ "-Wall -Werror -Wextra"),
