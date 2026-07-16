@@ -87,6 +87,7 @@ makeCppVar opts (CFG
   , cfgSymbols        = cfSymbols
   , cfgKeywords       = cfKeywords
   , cfgRules          = cfRules
+  , cfgReversibleCats = cfReversibleCats
   }) = do
   let
     groupedRules       = CPPUtil.groupRules cfRules
@@ -106,7 +107,8 @@ makeCppVar opts (CFG
       , compiledLexer_implicitTokenNames = implicitTokenNames
       } = FlexGen.makeFlex opts cfLiterals cfTerminals cfPragmas
     bisonFile = BisonGen.makeBison opts implicitTokenNames cfLiterals
-      cfPragmas mergedGroupedRules groupedRules listItemStorage entrypts
+      cfPragmas mergedGroupedRules groupedRules listItemStorage
+      cfReversibleCats entrypts
     printables = PrinterUtils.getPrintableSymbols
       cfLiterals cfPragmas mergedGroupedRules
     CPPUtil.CPPHeaderSourcePair

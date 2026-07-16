@@ -52,11 +52,13 @@ makeBison ::
     -- ^ Rules grouped by the category with precedence level.
   -> AbsynGen.ListItemStorage
     -- ^ How to access list elements.
+  -> [CF.Cat]      -- ^ The list of all reversible list categories.
   -> [CF.Cat]      -- ^ Entrypoints.
   -> Doc
 makeBison opts implicitTokenNames literals pragmas
     mergedGroupedRules
-    groupedRules@(GroupedRules rulemap) storeListItemsBy entrypoints =
+    groupedRules@(GroupedRules rulemap) storeListItemsBy
+    reversibleCatList entrypoints =
   bisonHeader opts
   $++$ tokenDefs implicitTokenNames literals pragmas
   $++$ codeRequires utils entrypoints
@@ -66,12 +68,14 @@ makeBison opts implicitTokenNames literals pragmas
   $++$ text "%start __start__"
   $++$ text "%%"
   $++$ startRules entrypoints mergedGroupedRules groupedRules
-  $++$ vcatSpaced (map (uncurry $ category implicitTokenNames storeListItemsBy)
+  $++$ vcatSpaced (map
+      (uncurry $ category implicitTokenNames storeListItemsBy reversible)
       $ Map.toList rulemap)
   $++$ text "%%"
   $++$ codeSection utils opts
   where
     utils = newBisonUtils opts
+    reversible = Set.fromList reversibleCatList
 
 ------------------------------------------------------------------------
 -- * General utility.
@@ -375,65 +379,37 @@ startRules entrypoints (MergedGroupedRules mrulemap) (GroupedRules rulemap) =
           in Map.insert name $ Set.difference allLevels $ Set.fromList badLevels
         (NontokenClass_ListCat _, _) -> id
       ) Map.empty $ Map.toList mrulemap
-    -- coercEntrypoints = concatMap (\case
-    --     CF.Cat name -> let
-    --         Just allLevels = Map.lookup name coercionLevels
-    --         allCoerc =
-    --           [ (to, from)
-    --           | r <- 
-    --       in
-    --         if any (\ r ->
-    --           CF.isCoercion r
-    --           && CF.isParsable r
-    --           && CF.rhsRule r == [Left cat]) 
-    --     CF.CoercCat name lvl ->
-    --       error $ "entrypoints contain a CoercCat " ++ name ++ show lvl
-    --     other -> [other]
-    --   ) entrypoints
 
 -- | Generates all Bison rules for a category.
 category ::
      FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
   -> AbsynGen.ListItemStorage
+  -> Set CF.Cat           -- ^ The set of reversible categories.
   -> NontokenCategory  -- ^ The nonterminal.
   -> [CF.Rule]         -- ^ The rules that produce the nonterminal.
   -> Doc
 category (FlexGen.NamedImplicitTokens implicitTokenNames)
-    storeListItemsBy cat rules =
+    storeListItemsBy reversibleCats cat rules =
   case cat of
     Nontoken_ListCat lElem -> makeCategoryFromRules
       [makeRule r | r <- rules, CF.internal r == CF.Parsable]
       where
         lElemClass = catNameNoCoerc lElem
-        maybeMakeUnique = case storeListItemsBy of
-          AbsynGen.StoreByValue   -> id
-          AbsynGen.StoreByPointer -> \ s -> concat
-            ["std::make_unique<" , lElemClass , ">(" , s , ")"]
+        myMaybeMakeUnique = maybeMakeUnique lElemClass
         makeRule r =
           let rhs = CF.rhsRule $ CF.removeWhiteSpaceSeparators r
           in case CF.funName r of
             "_"     -> coercionRule rhs
-            "(:)"   -> concat
-              [ "/* (:) */ "
-              , sentFormToBison rhs
-              , " { $$ = std::move($"
-              , show dollarList
-              , "); $$.push_front("
-              , maybeMakeUnique $ concat
-                [ "std::move($"
-                , show dollarItem
-                , ")"
-                ]
-              , "); }"
-              ]
-              where
-                [dollarItem, dollarList] = rhsObjectIndices rhs
+            "(:)"   ->
+              if CF.ListCat lElem `Set.member` reversibleCats
+              then revConsRule lElemClass rhs
+              else consRule lElemClass rhs
             "(:[])" -> concat
               [ "/* (:[]) */ "
               , sentFormToBison rhs
               , " { $$.push_front("
-              , maybeMakeUnique $ concat
+              , myMaybeMakeUnique $ concat
                 [ "std::move($"
                 , show dollarItem
                 , ")"
@@ -471,6 +447,44 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
           _   -> error "Coercion object count /= 1"
         , "); }"
         ]
+    consRule :: String -> CF.SentForm -> String
+    consRule lElemClass rhs =
+      let [dollarItem, dollarList] = rhsObjectIndices rhs
+      in concat
+        [ "/* (:) */ "
+        , sentFormToBison rhs
+        , " { $$ = std::move($"
+        , show dollarList
+        , "); $$.push_front("
+        , maybeMakeUnique lElemClass $ concat
+          [ "std::move($"
+          , show dollarItem
+          , ")"
+          ]
+        , "); }"
+        ]
+    -- | If rhs == [Left item, Right terminator..., Left lst],
+    -- then rhs := [Left lst, Left item, Right terminator...]
+    revConsRule :: String -> CF.SentForm -> String
+    revConsRule lElemClass rhs =
+      let (last, notlast) = myForceUnsnoc rhs
+      in concat
+        [ "/* flip (:) */ "
+        , sentFormToBison $ last : notlast
+        , " { $$ = std::move($1); $$.push_back("
+        , maybeMakeUnique lElemClass "std::move($2)"
+        , "); }"
+        ]
+    maybeMakeUnique elemClass = case storeListItemsBy of
+      AbsynGen.StoreByValue   -> id
+      AbsynGen.StoreByPointer -> \ s -> concat
+        ["std::make_unique<", elemClass, ">(", s, ")"]
+    myForceUnsnoc = \case
+      [] -> error "myForceUnsnoc called on an empty list"
+      [single] -> (single, [])
+      head : tail ->
+        let (last, ttail) = myForceUnsnoc tail
+        in (last, head : ttail)
     emplacementRule name rhs = concat
       [ "/* "
       , name
