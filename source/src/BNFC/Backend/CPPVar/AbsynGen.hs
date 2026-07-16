@@ -86,7 +86,9 @@ makeAbsyn opts literals pragmas entrypts mergedGroupedRules = GeneratedAbsyn
     cppFunctions = translateFunctions pragmas
     hppMain = hppTokenStructs $++$ hppClassDecls $++$ hppFunctions
     entrypointRefl = linesToText
-      ["ENTRYPOINT(" ++ catNameNoCoerc cat ++ ");" | cat <- entrypts]
+      [ "ENTRYPOINT(" ++ catNameNoCoerc cat ++ ");"
+      | cat <- removePrecedenceFromCats entrypts
+      ]
     hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppClassRefl
       $++$ entrypointRefl $++$ reflectionUndefs
     hpp = headerHead $++$ maybeNamespace

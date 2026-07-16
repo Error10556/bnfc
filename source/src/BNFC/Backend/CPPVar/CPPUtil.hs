@@ -31,6 +31,7 @@ module BNFC.Backend.CPPVar.CPPUtil
 
     -- * Category functions
   , removePrecedenceFromCat
+  , removePrecedenceFromCats
   , extractEntrypoints
   , catNameNoCoerc
   , catNameWithCoerc
@@ -236,23 +237,37 @@ removePrecedenceFromCat = \case
   CF.CoercCat s _ -> CF.Cat s
   other           -> other
 
+-- | Removes precedence information and deduplicates the categories.
+removePrecedenceFromCats :: [CF.Cat] -> [CF.Cat]
+removePrecedenceFromCats = Set.toList . Set.fromList
+  . map removePrecedenceFromCat
+
 -- | Returns a list of categories to use as parse targets.
--- If the grammar does not specify them explicitly, returns all categories.
--- /Removes/ precedence information because we only want class names
--- (Bison does not support specifying an exact starting point).
+-- If the grammar does not specify them explicitly, returns all categories that
+-- __cannot be converted__ to others without additional syntax.
+-- __Keeps__ precedence information.
 -- Deduplicates specified categories.
 extractEntrypoints ::
      [CF.Pragma]   -- ^ Grammar pragmas (contain @entrypoint@ declarations).
   -> GroupedRules  -- ^ Rules grouped by category.
   -> [CF.Cat]
 extractEntrypoints pragmas (GroupedRules rulemap)
-  | null res  = Set.toList $ Set.fromList
-    $ map (removePrecedenceFromCat . nontoken2cat) $ Map.keys rulemap
+  | null res  =
+    -- Set.toList $ Set.fromList
+    -- $ map (removePrecedenceFromCat . nontoken2cat) $ Map.keys rulemap
+    let
+      allCats  = map nontoken2cat $ Map.keys rulemap
+      allRules = concat $ Map.elems rulemap
+      badCats  =
+        [ onlycat
+        | CF.Rule { rhsRule = [Left onlycat], internal = CF.Parsable }
+          <- allRules
+        ]
+    in Set.toList $ Set.fromList allCats `Set.difference` Set.fromList badCats
   | otherwise = res
   where
-    res = Set.toList $ Set.fromList $ concat
-      [ map (removePrecedenceFromCat . CF.wpThing) cats
-      | CF.EntryPoints cats <- pragmas]
+    res = Set.toList $ Set.fromList $ map CF.wpThing
+      $ concat [cats | CF.EntryPoints cats <- pragmas]
 
 -- | For a given nonterminal, returns a C identifier suitable for a class name
 -- (drops precedence information).
