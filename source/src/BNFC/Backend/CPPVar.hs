@@ -38,39 +38,39 @@ grammar description file, as given by 'BNFC.Options.lang'):
 +----------------------------+-------------------------------------------+
 |            FILE            |                DESCRIPTION                |
 +============================+===========================================+
-| @Absyn.hpp@                | abstract syntax nodes declarations        |
+| @Absyn.hpp@                |                                           |
++----------------------------+ abstract syntax node declarations         |
+| @Absyn.cpp@                |                                           |
 +----------------------------+-------------------------------------------+
 | @PatternMatching.hpp@      | the pipe operator overload                |
 +----------------------------+-------------------------------------------+
-| @PrinterCommon.hpp@        | common string visualization utilities     |
+| @PrinterCommon.hpp@        |                                           |
++----------------------------+ common string visualization utilities     |
+| @PrinterCommon.cpp@        |                                           |
 +----------------------------+-------------------------------------------+
-| @ContextFreePretty@        | pretty-printing                           |
+| @ContextFreePretty@        |                                           |
 | @Printer.hpp@              |                                           |
++----------------------------+ pretty-printing (whole nodes at once)     |
+| @ContextFreePretty@        |                                           |
+| @Printer.cpp@              |                                           |
 +----------------------------+-------------------------------------------+
-| @ClassicPrettyPrinter.hpp@ | pretty-printing                           |
+| @ClassicPrettyPrinter.hpp@ |                                           |
++----------------------------+ pretty-printing (token-wise)              |
+| @ClassicPrettyPrinter.cpp@ |                                           |
 +----------------------------+-------------------------------------------+
 | @HaskellPrinter.hpp@       | visualization of the abstract syntax tree |
++----------------------------+ (as a Haskell expression)                 |
+| @HaskellPrinter.cpp@       |                                           |
 +----------------------------+-------------------------------------------+
 | @SyntaxPrinter.hpp@        | visualization of the abstract syntax tree |
++----------------------------+ (as an ASCII tree)                        |
+| @SyntaxPrinter.cpp@        |                                           |
 +----------------------------+-------------------------------------------+
 | @language.l@               | the FLex lexer definition                 |
 +----------------------------+-------------------------------------------+
 | @language.ypp@             | the Bison parser definition               |
 +----------------------------+-------------------------------------------+
-| @Makefile@ (if @-m@ given) | recipes reference                         |
-+----------------------------+-------------------------------------------+
-| @Absyn.cpp@                |                                           |
-+----------------------------+-------------------------------------------+
-| @PrinterCommon.cpp@        |                                           |
-+----------------------------+-------------------------------------------+
-| @ContextFreePretty@        |                                           |
-| @Printer.cpp@              |                                           |
-+----------------------------+-------------------------------------------+
-| @ClassicPrettyPrinter.cpp@ |                                           |
-+----------------------------+-------------------------------------------+
-| @HaskellPrinter.cpp@       |                                           |
-+----------------------------+-------------------------------------------+
-| @SyntaxPrinter.cpp@        |                                           |
+| @Makefile@                 | recipes reference __(if @-m@ given)__     |
 +----------------------------+-------------------------------------------+
 | @Test.cpp@                 | an example parser, used for testing       |
 +----------------------------+-------------------------------------------+
@@ -82,7 +82,6 @@ makeCppVar ::
   -> MkFiles ()
 makeCppVar opts (CFG
   { cfgPragmas        = cfPragmas
-  -- , cfgUsedCats       = cfUsedCats
   , cfgLiterals       = cfLiterals
   , cfgSymbols        = cfSymbols
   , cfgKeywords       = cfKeywords
@@ -94,7 +93,7 @@ makeCppVar opts (CFG
     mergedGroupedRules = CPPUtil.mergeCoercCats groupedRules
     entrypts           = CPPUtil.extractEntrypoints
       (defaultBisonEntrypoints opts) cfPragmas groupedRules cfRules
-    cfTerminals = cfSymbols ++ cfKeywords
+    cfTerminals        = cfSymbols ++ cfKeywords
     AbsynGen.GeneratedAbsyn
       { absynCode = CPPUtil.CPPHeaderSourcePair
         { cppHeaderText = absynHpp
