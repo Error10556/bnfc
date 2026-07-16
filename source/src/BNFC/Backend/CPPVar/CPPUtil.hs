@@ -260,7 +260,6 @@ extractEntrypoints ::
   -> [CF.Rule]     -- ^ Ungrouped rules in the original order.
   -> [CF.Cat]
 extractEntrypoints deflt pragmas (GroupedRules rulemap) cfRules
-  -- (CF.Rule { valRCat = CF.WithPosition { wpThing = firstCat } })
   | null res  = case deflt of
     Options.BisonAllCategories ->
       let
@@ -275,7 +274,7 @@ extractEntrypoints deflt pragmas (GroupedRules rulemap) cfRules
     Options.BisonFirstCategory ->
       let
         (CF.Rule { valRCat = CF.WithPosition { wpThing = firstCat } }) : _
-          = cfRules
+          = filter ((== CF.Parsable) . CF.internal) cfRules
       in [firstCat]
   | otherwise = res
   where
