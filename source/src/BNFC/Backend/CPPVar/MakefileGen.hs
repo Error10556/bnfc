@@ -217,13 +217,13 @@ CXX        | The C++ compiler binary.
 CXXFLAGS   | The flags to pass to the C++ compiler.
 BISONFLAGS | The flags to pass to Bison.
 LDFLAGS    | The flags to pass to the C++ linker.
-|] $+$
+|] $+$ (
     if needBnfcTarget
     then text [s|
 BNFCFLAGS  | The flags to pass to BNFC when invoking it on the same grammar.
 |]
     else empty
-  $+$ unlinesToText [s|
+  ) $+$ unlinesToText [s|
 NO_PRETTY  | Set to a nonempty string to not use the ContextFreePrettyPrinter.
 NO_CPRETTY | Set to a nonempty string to not use the ClassicPrettyPrinter.
 NO_TREE    | Set to a nonempty string to not use the SyntaxPrinter.
@@ -251,14 +251,14 @@ rules langname needBnfcTarget = linesToText
   , "\t@:"
   , ""
   , "all: $(ARCHIVES) Test" ++ langname
-  ] $++$
+  ] $++$ (
     if needBnfcTarget
     then linesToText
       [ "bnfc:"
       , "\tbnfc $(BNFCFLAGS)"
       ]
     else empty
-  $+$ linesToText
+  ) $+$ linesToText
   [ "define NEWLINE"
   , ""
   , ""
