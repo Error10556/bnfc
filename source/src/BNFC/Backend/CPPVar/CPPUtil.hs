@@ -42,6 +42,10 @@ module BNFC.Backend.CPPVar.CPPUtil
     -- * UTF-8
   , utf8encode
   , cppShowString
+
+    -- * Location tracking
+  , LocationKind(..)
+  , getLocationKind
   ) where
 
 -- Language imports
@@ -385,6 +389,61 @@ cppShowString s =
               else fromIntegral other :: Int
           in '\\' : pad3 (showOct code "")
     pad3 s = replicate (3 - length s) '0' ++ s
+
+------------------------------------------------------------------------
+-- * Location tracking.
+------------------------------------------------------------------------
+
+-- | How do we track locations in the syntax tree?
+data LocationKind
+  = CppLocationsNone   -- ^ No locations.
+  | CppLocationsStart  -- ^ Only start positions of nodes.
+  | CppLocationsRange  -- ^ Start and end positions of nodes.
+  deriving (Show, Eq, Ord, Bounded, Enum)
+
+-- | Returns the user-specified way to track locations.
+getLocationKind ::
+     Options.SharedOptions  -- ^ BNFC invokation options.
+  -> LocationKind
+getLocationKind opts = case Options.positions opts of
+  Options.None -> CppLocationsNone
+  Options.Start -> CppLocationsStart
+  Options.Range -> CppLocationsRange
+  Options.Line -> error "--positions=line locations unsupported"
+
+-- -- | A collection of functions useful for generating location tracking code
+-- -- and definitions.
+-- data LocationUtils = LocationUtils
+--   {
+--     -- | What we do with locations.
+--     locUtils_locationKind        :: !LocationKind
+--
+--     -- | Adds the correct parameter to the start of a function parameter list
+--     -- (if needed).
+--   , locUtils_maybePrependParam   ::
+--        String    -- ^ Parameter name (can be empty).
+--     -> [String]  -- ^ Parameter list.
+--     -> [String]
+--
+--     -- | The C++ (un-cv-qualified, unreferenced) type of the @location@ field.
+--     -- Throws if we do not store locations.
+--   , locUtils_storageClass        :: String
+--
+--     -- | "@n" if we store ranges or "@n.start" if we store start positions.
+--     -- Throws if we do not store locations.
+--   , locUtils_bisonTakeLocation   ::
+--          Int  -- ^ Rule element index for "$n" OR 0 for "@$".
+--       -> String
+--
+--     -- | Creates an object of a position-tracking token.
+--   , locUtils_bisonCreatePosToken :: String -> Int -> String
+--
+--     -- | If needed, prepends the current location ("@$" or "@$.start")
+--     -- to an argument list.
+--   , locUtils_bisonMaybePrependArg ::
+--          [String]  -- ^ Existing argument list.
+--       -> [String]
+--   }
 
 ------------------------------------------------------------------------
 -- * Utility.
