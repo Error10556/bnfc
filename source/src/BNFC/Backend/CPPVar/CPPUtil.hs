@@ -46,6 +46,7 @@ module BNFC.Backend.CPPVar.CPPUtil
     -- * Location tracking
   , LocationKind(..)
   , getLocationKind
+  , isPositionalToken
   ) where
 
 -- Language imports
@@ -411,6 +412,21 @@ getLocationKind opts = case Options.positions opts of
   Options.Range -> CppLocationsRange
   Options.Line -> error "--positions=line locations unsupported"
 
+-- | Was a token defined as @position token@?
+--
+-- There is a similar function 'BNFC.CF.isPositionCat', but this implementation
+-- uses sets. It is meant to be re-used after being applied to the grammar.
+isPositionalToken ::
+     [CF.Pragma]  -- ^ Pragma definitions in the grammar.
+  -> String       -- ^ Token name.
+  -> Bool
+isPositionalToken pragmas =
+  let
+    positionals = Set.fromList
+      [tk | CF.TokenReg CF.WithPosition {wpThing=tk} True _ <- pragmas]
+  in
+    flip Set.member positionals
+
 -- -- | A collection of functions useful for generating location tracking code
 -- -- and definitions.
 -- data LocationUtils = LocationUtils
@@ -418,22 +434,11 @@ getLocationKind opts = case Options.positions opts of
 --     -- | What we do with locations.
 --     locUtils_locationKind        :: !LocationKind
 --
---     -- | Adds the correct parameter to the start of a function parameter list
---     -- (if needed).
---   , locUtils_maybePrependParam   ::
---        String    -- ^ Parameter name (can be empty).
---     -> [String]  -- ^ Parameter list.
---     -> [String]
---
---     -- | The C++ (un-cv-qualified, unreferenced) type of the @location@ field.
---     -- Throws if we do not store locations.
---   , locUtils_storageClass        :: String
---
---     -- | "@n" if we store ranges or "@n.start" if we store start positions.
---     -- Throws if we do not store locations.
---   , locUtils_bisonTakeLocation   ::
---          Int  -- ^ Rule element index for "$n" OR 0 for "@$".
---       -> String
+--   -- | "@n" if we store ranges or "@n.start" if we store start positions.
+--   -- Throws if we do not store locations.
+-- , astLoc_bisonTakeLocation ::
+--        Int  -- ^ Rule element index for "$n" OR 0 for "@$".
+--     -> String
 --
 --     -- | Creates an object of a position-tracking token.
 --   , locUtils_bisonCreatePosToken :: String -> Int -> String
