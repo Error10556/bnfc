@@ -69,11 +69,11 @@ makeFlex opts literals terminals pragmas = CompiledLexer
     $++$ defImplicitTokens opts tkNames
     $++$ defCustomTokens opts pragmas
     $++$ defBuiltInTokens opts usedTokens
-    $++$ text "<INITIAL>[\\t\\n\\f\\r\\x20]+ /* whitespace */;"
+    $++$ text ("<INITIAL>[\\t\\n\\f\\r\\x20]+ /* whitespace */ "
+      ++ "yyextra->TakeLoc();")
     $+$ text ("<INITIAL><<EOF>> return " ++ bisonParserName opts
-      ++ "::make_YYEOF();")
-    $++$ text ("[\\x00-\\xff] return " ++ bisonParserName opts
-      ++ "::make_YYerror();")
+      ++ "::make_YYEOF(yyextra->TakeLoc());")
+    $++$ text ("[\\x00-\\xff] return LEXER_ERROR(yyextra->TakeLoc());")
     $++$ text "%%"
     $++$ maybeWrapNamespace (scannerDecl opts $++$ scannerImpl opts)
   , compiledLexer_implicitTokenNames = tkNames
@@ -198,25 +198,88 @@ flexHead opts usedTokens = (linesToText $
   [ "%option outfile=\"" ++ language ++ ".lex.cpp\""
   , ""
   , "%{"
+  , "#undef yylex"
   ] ++ (if useCharconv then ["#include <charconv>"] else []) ++
   [ "#include <string>"
   , "#include <string_view>"
   , "#include <system_error>"
   , "#include \"" ++ language ++ ".tab.hpp\""
-  , ""
-  , "#define YY_DECL " ++ bisonParserName opts
-    ++ "::symbol_type " ++ maybePrefix ++ "lex(yyscan_t yyscanner)"
-  ]) $++$ literalTokenUtils usedTokens $++$ linesToText
+  ])
+  $++$ packwrap (unlinesToText [s|
+struct Extra {
+    std::string parsed;
+    position start;
+    position end;
+
+    Extra(std::string* optFilename)
+        : start(optFilename, 1, 1)
+        , end(optFilename, 1, 1) {}
+    inline location TakeLoc() {
+        location res = {start, end};
+        start = end;
+        return res;
+    }
+};
+
+Parser::symbol_type yylex(yyscan_t yyscanner, Parser* thisparser);
+|])
+  $++$ text (concat
+      [ "#define YY_DECL "
+      , bisonParserName opts
+      , "::symbol_type "
+      , maybePackagePrefix
+      , "yylex(yyscan_t yyscanner, Parser* thisparser)"
+      ])
+  $+$ unlinesToText [s|
+#define YY_USER_ACTION                   \
+    {                                    \
+        for (int i = 0; i < yyleng; i++) \
+            if (yytext[i] == '\n')       \
+                yyextra->end.lines();    \
+            else                         \
+                yyextra->end.columns();  \
+    }
+|]
+  $+$ linesToText
+    [ concat
+      [ "#define yyterminate() return "
+      , maybePackagePrefix
+      , "Parser::make_YYEOF(yyextra->TakeLoc())"
+      ]
+    , ""
+    , "#define LEXER_ERROR(loc) LexerError(thisparser, loc)"
+    , concat
+      [ "static inline "
+      , maybePackagePrefix
+      , "Parser::symbol_type LexerError("
+      ]
+    , concat
+      [ "        "
+      , maybePackagePrefix
+      , "Parser* thisparser, const "
+      , maybePackagePrefix
+      , "location& loc) {"
+      ]
+    , "    thisparser->error(loc, \"Lexical error\");"
+    , concat
+      [ "    return "
+      , maybePackagePrefix
+      , "Parser::make_YYerror(loc);"
+      ]
+    , "}"
+    ]
+  $++$ literalTokenUtils usedTokens $++$ linesToText
   [ "%}"
   , ""
-  , "%option extra-type=\"std::string*\""
+  , "%option extra-type=\"" ++ maybePackagePrefix ++ "Extra*\""
   ]
   where
     useCharconv = grammarUsesInteger usedTokens || grammarUsesDouble usedTokens
-    maybePrefix = case Options.inPackage opts of
+    maybePackagePrefix = case Options.inPackage opts of
       Nothing -> ""
-      Just s  -> s
+      Just s  -> s ++ "::"
     language = Options.lang opts
+    packwrap = wrapPackage opts
 
 -- | Make definitions for tokens specified as literal strings.
 defImplicitTokens ::
@@ -231,7 +294,7 @@ defImplicitTokens opts (NamedImplicitTokens mp) = linesToText
     , bisonParserName opts
     , "::make_"
     , name
-    , "();"
+    , "(yyextra->TakeLoc());"
     ]
   | (str, name) <- Map.toList mp]
 
@@ -260,14 +323,14 @@ literalTokenUtils usedTokens =
     hasString = grammarUsesString usedTokens
     maybeHexConversion
       | hasChar || hasString = unlinesToText [s|
-inline int hexDigitValue(char ch) {
+static inline int hexDigitValue(char ch) {
     if ('0' <= ch && ch <= '9') return ch - '0';
     if ('a' <= ch && ch <= 'f') return ch - 'a' + 10;
     if ('A' <= ch && ch <= 'F') return ch - 'A' + 10;
     return 0;
 }
 
-inline int32_t hexInt32(const char* start, int len) {
+static inline int32_t hexInt32(const char* start, int len) {
     int32_t val = 0;
     for (int i = 0; i < len; i++) val = (val << 4) | hexDigitValue(start[i]);
     return val;
@@ -277,14 +340,14 @@ inline int32_t hexInt32(const char* start, int len) {
 
     maybeUTF8Decode
       | hasChar = unlinesToText [s|
-inline int32_t minCharForEncodedLen(int len) {
+static inline int32_t minCharForEncodedLen(int len) {
     if (len < 2) return 0;
     if (len == 2) return 0x80;
     return static_cast<int32_t>(1) << (11 + 5 * (len - 3));
 }
 
     /* returns -1 if a character uses a non-minimal # of bytes */
-inline int decodeUTF8(const char* start, int len) {
+static inline int decodeUTF8(const char* start, int len) {
     if (len == 1) return *start;
     int firstbits = 7 - len;
     int32_t res = *start & ((1 << firstbits) - 1);
@@ -296,7 +359,7 @@ inline int decodeUTF8(const char* start, int len) {
 
     maybeUTF8Encode
       | hasString = unlinesToText [s|
-inline void encodeUTF8(std::string& dest, int32_t ch) {
+static inline void encodeUTF8(std::string& dest, int32_t ch) {
     if (ch < 0) {
         dest.push_back(0xFF);
         return;
@@ -373,7 +436,7 @@ defCustomTokens opts pragmas = vcatSpaced
           , bisonParserName opts
           , "::make_CUSTOM_"
           , name
-          , "(yytext);"
+          , "(yytext, yyextra->TakeLoc());"
           ]
 
 -- | Generates parsing rules for used literal tokens.
@@ -406,7 +469,7 @@ defIdent ::
      String  -- ^ Bison parser name.
   -> Doc
 defIdent parser = text $ "<INITIAL>[a-zA-Z_][a-zA-Z0-9_]* return "
-    ++ parser ++ "::make_IDENT(yytext);"
+    ++ parser ++ "::make_IDENT(yytext, yyextra->TakeLoc());"
 
 -- | @String@ rules.
 defString ::
@@ -414,35 +477,35 @@ defString ::
   -> Doc
 defString parser = linesToText
     [ "    /* String */"
-    , "<INITIAL>\\\" BEGIN(STRING); yyextra->clear();"
+    , "<INITIAL>\\\" BEGIN(STRING); yyextra->parsed.clear();"
     , "<STRING>\\\" {"
     , "        BEGIN(INITIAL);"
     , "        std::string result;"
-    , "        result.swap(*yyextra);"
-    , "        return " ++ parser ++ "::make_STRING(result);"
+    , "        result.swap(yyextra->parsed);"
+    , "        return " ++ parser ++ "::make_STRING(result, yyextra->TakeLoc());"
     , "    }"
     ] $+$ [s|
 <STRING>\\ BEGIN(ESCAPE);
-<STRING>. yyextra->push_back(*yytext);
-<ESCAPE>0 BEGIN(STRING); yyextra->push_back('\0');
-<ESCAPE>a BEGIN(STRING); yyextra->push_back('\a');
-<ESCAPE>b BEGIN(STRING); yyextra->push_back('\b');
-<ESCAPE>f BEGIN(STRING); yyextra->push_back('\f');
-<ESCAPE>n BEGIN(STRING); yyextra->push_back('\n');
-<ESCAPE>r BEGIN(STRING); yyextra->push_back('\r');
-<ESCAPE>t BEGIN(STRING); yyextra->push_back('\t');
-<ESCAPE>v BEGIN(STRING); yyextra->push_back('\v');
+<STRING>. yyextra->parsed.push_back(*yytext);
+<ESCAPE>0 BEGIN(STRING); yyextra->parsed.push_back('\0');
+<ESCAPE>a BEGIN(STRING); yyextra->parsed.push_back('\a');
+<ESCAPE>b BEGIN(STRING); yyextra->parsed.push_back('\b');
+<ESCAPE>f BEGIN(STRING); yyextra->parsed.push_back('\f');
+<ESCAPE>n BEGIN(STRING); yyextra->parsed.push_back('\n');
+<ESCAPE>r BEGIN(STRING); yyextra->parsed.push_back('\r');
+<ESCAPE>t BEGIN(STRING); yyextra->parsed.push_back('\t');
+<ESCAPE>v BEGIN(STRING); yyextra->parsed.push_back('\v');
 <ESCAPE>x{HEXBYTE} {
         BEGIN(STRING);
-        yyextra->push_back(
+        yyextra->parsed.push_back(
             static_cast<char>(hexInt32(yytext + 1, yyleng - 1)));
     }
 <ESCAPE>u{HEXSHORT} |
 <ESCAPE>U{HEXINT} {
         BEGIN(STRING);
-        encodeUTF8(*yyextra, hexInt32(yytext + 1, yyleng - 1));
+        encodeUTF8(yyextra->parsed, hexInt32(yytext + 1, yyleng - 1));
     }
-<ESCAPE>. BEGIN(STRING); yyextra->push_back(*yytext);
+<ESCAPE>. BEGIN(STRING); yyextra->parsed.push_back(*yytext);
 |]
 
 -- | @Double@ rules.
@@ -455,11 +518,11 @@ defDouble parser = unlinesToText [s|
         const char* const end = yytext + yyleng;
         double num;
         auto res = std::from_chars(yytext, end, num);
+        auto loc = yyextra->TakeLoc();
         if (res.ec == std::errc() && res.ptr == end)
 |] $+$ linesToText
-    [ "            return " ++ parser ++ "::make_DOUBLE(num);"
-    , "        else"
-    , "            return " ++ parser ++ "::make_YYerror();"
+    [ "            return " ++ parser ++ "::make_DOUBLE(num, loc);"
+    , "        return LEXER_ERROR(loc);"
     , "    }"
     ]
 
@@ -473,11 +536,11 @@ defInteger parser = unlinesToText [s|
         const char* const end = yytext + yyleng;
         long num;
         auto res = std::from_chars(yytext, end, num);
+        auto loc = yyextra->TakeLoc();
         if (res.ec == std::errc() && res.ptr == end)
 |] $+$ linesToText
-    [ "            return " ++ parser ++ "::make_INTEGER(num);"
-    , "        else"
-    , "            return " ++ parser ++ "::make_YYerror();"
+    [ "            return " ++ parser ++ "::make_INTEGER(num, loc);"
+    , "        return LEXER_ERROR(loc);"
     , "    }"
     ]
 
@@ -494,20 +557,21 @@ defChar parser = linesToText (
     , "<CHAR>\\U{HEXINT}' {"
     , "        BEGIN(INITIAL);"
     , "        return " ++ parser
-      ++ "::make_CHAR(hexInt32(yytext + 2, yyleng - 2));"
+      ++ "::make_CHAR(hexInt32(yytext + 2, yyleng - 2), yyextra->TakeLoc());"
     , "    }"
     , "<CHAR>\\\\({UTF8MULTICHAR}|.)' {"
     , "        BEGIN(INITIAL);"
     , "        int32_t charcode = decodeUTF8(yytext + 1, yyleng - 2);"
-    , "        if (charcode == -1) return " ++ parser ++ "::make_YYerror();"
-    , "        return " ++ parser
-      ++ "::make_CHAR(charcode);"
+    , "        auto loc = yyextra->TakeLoc();"
+    , "        if (charcode == -1) return LEXER_ERROR(loc);"
+    , "        return " ++ parser ++ "::make_CHAR(charcode, loc);"
     , "    }"
     , "<CHAR>({UTF8MULTICHAR}|[^'\\\\\\n])' {"
     , "        BEGIN(INITIAL);"
     , "        int32_t charcode = decodeUTF8(yytext, yyleng - 1);"
-    , "        if (charcode == -1) return " ++ parser ++ "::make_YYerror();"
-    , "        return " ++ parser ++ "::make_CHAR(charcode);"
+    , "        auto loc = yyextra->TakeLoc();"
+    , "        if (charcode == -1) return LEXER_ERROR(loc);"
+    , "        return " ++ parser ++ "::make_CHAR(charcode, loc);"
     , "    }"
     ])
   where
@@ -518,7 +582,7 @@ defChar parser = linesToText (
       , parser
       , "::make_CHAR('\\"
       , [ch]
-      , "');"
+      , "', yyextra->TakeLoc());"
       ]
 
 -- | Rules to discard one-line comments.
@@ -561,13 +625,14 @@ scannerDecl ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> Doc
 scannerDecl opts = linesToText
-  [ "class " ++ name ++ " {"
+  [ "// optFilename is not owned by the lexer."
+  , "class " ++ name ++ " {"
   , "    yyscan_t scanner;"
-  , "    " ++ name ++ "();"
+  , "    " ++ name ++ "(std::string* optFilename);"
   , ""
   , "public:"
-  , "    " ++ name ++ "(FILE* file);"
-  , "    " ++ name ++ "(std::string_view str);"
+  , "    " ++ name ++ "(FILE* file, std::string* optFilename);"
+  , "    " ++ name ++ "(std::string_view str, std::string* optFilename);"
   , "    yyscan_t FlexScanner() const;"
   , "    ~" ++ name ++ "();"
   , "};"
@@ -580,17 +645,20 @@ scannerImpl ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> Doc
 scannerImpl opts = linesToText
-  [ name ++ "::" ++ name ++ "() {"
-  , "    int err = " ++ prefix ++ "lex_init_extra(new std::string(), &scanner);"
+  [ name ++ "::" ++ name ++ "(std::string* optFilename) {"
+  , "    int err = " ++ prefix ++ "lex_init_extra("
+    ++ "new Extra(optFilename), &scanner);"
   , "    if (err) throw std::system_error(err, std::generic_category(),"
   , "        \"Cannot create scanner\");"
   , "}"
   , ""
-  , name ++ "::" ++ name ++ "(FILE* file) : " ++ name ++ "() {"
+  , name ++ "::" ++ name ++ "(FILE* file, std::string* optFilename)"
+  , "    : " ++ name ++ "(optFilename) {"
   , "    " ++ prefix ++ "restart(file, scanner);"
   , "}"
   , ""
-  , name ++ "::" ++ name ++ "(std::string_view str) : " ++ name ++ "() {"
+  , name ++ "::" ++ name ++ "(std::string_view str, std::string* optFilename)"
+  , "    : " ++ name ++ "(optFilename) {"
   , "    " ++ prefix ++ "_scan_bytes(str.data(), str.size(), scanner);"
   , "}"
   , ""
