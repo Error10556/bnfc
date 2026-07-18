@@ -486,7 +486,7 @@ specificOptions =
     , haskellTargets )
   , ( Option []    ["functor"] (NoArg (\o -> o {positions = Start}))
           "Make the AST a functor and use it to store the start position of the nodes (alias to --positions=start)"
-    , haskellTargets )
+    , TargetCppVariants : haskellTargets )
   , ( Option []    ["generic"] (NoArg (\o -> o {generic = True}))
           "Derive Data and Generic instances for AST types"
     , haskellTargets )
