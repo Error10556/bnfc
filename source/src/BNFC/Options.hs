@@ -196,12 +196,12 @@ data SharedOptions = Options
   , inPackage   :: InPackage       -- ^ The hierarchical package to put the modules in, or Nothing.
   , linenumbers :: RecordPositions -- ^ Add and set line_number field for syntax classes
   , ansi        :: Ansi            -- ^ Restrict to the ANSI language standard (C/C++)?
+  , positions   :: Positions   -- ^ Options @--positions@ (or legacy @--functor@). Make AST functorial? What to include?
   --- C++-with-variants specific:
   , listItemStorage :: ListItemStorageType -- ^ What lists contain: values or pointers.
   , defaultBisonEntrypoints :: DefaultBisonEntrypoint  -- ^ what to include if given no "entrypoint" pragmas.
   --- Haskell specific:
   , inDir         :: Bool        -- ^ Option @-d@.
-  , positions     :: Positions   -- ^ Options @--positions@ (or legacy @--functor@). Make AST functorial? What to include?
   , generic       :: Bool        -- ^ Option @--generic@.  Derive Data and Generic?
   , alexMode      :: AlexVersion -- ^ Options @--alex@.
   , tokenText     :: TokenText   -- ^ Options @--bytestrings@, @--string-token@, and @--text-token@.
@@ -235,12 +235,12 @@ defaultOptions = Options
   , inPackage       = Nothing
   , linenumbers     = NoRecordPositions
   , ansi            = BeyondAnsi
+  , positions       = None
   -- C++-with-variants specific
   , listItemStorage = ItemsStoredByValueIfNoLoops
   , defaultBisonEntrypoints = BisonAllCategories
   -- Haskell specific
   , inDir           = False
-  , positions       = None
   , generic         = False
   , alexMode        = Alex3
   , tokenText       = StringToken
@@ -417,6 +417,9 @@ specificOptions =
         , "(Note: Java requires cup version 0.11b-2014-06-11 or greater.)"
         ]
     , [TargetC, TargetCpp, TargetJava] )
+  , ( Option [] ["positions"] (ReqArg (\s o -> o {positions = fromMaybe None (parsePositions s)}) "start|range")
+          "Make the AST a functor (C++: add a field) and set what to include in the nodes"
+    , TargetCppVariants : haskellTargets )
   , ( Option [] ["ansi"] (NoArg (\o -> o{ ansi = Ansi })) $ unlines
         [ "Restrict to ANSI language standard"
         ]
@@ -483,9 +486,6 @@ specificOptions =
     , haskellTargets )
   , ( Option []    ["functor"] (NoArg (\o -> o {positions = Start}))
           "Make the AST a functor and use it to store the start position of the nodes (alias to --positions=start)"
-    , haskellTargets )
-  , ( Option []    ["positions"] (ReqArg (\s o -> o {positions = fromMaybe None (parsePositions s)}) "start|range")
-          "Make the AST a functor and set what to include in the nodes"
     , haskellTargets )
   , ( Option []    ["generic"] (NoArg (\o -> o {generic = True}))
           "Derive Data and Generic instances for AST types"
