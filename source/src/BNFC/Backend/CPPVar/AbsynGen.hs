@@ -85,15 +85,15 @@ makeAbsyn opts literals pragmas isPosToken entrypts mergedGroupedRules
       { absynNodeCode_declaration = hppClassDecls
       , absynNodeCode_reflection = hppClassRefl
       , absynNodeCode_implementation = cppRules
-      } = defineAllClasses listStorage classOrder
-    hppFunctions = declareFunctions pragmas
-    cppFunctions = translateFunctions pragmas
+      } = defineAllClasses utils listStorage classOrder
+    hppFunctions = declareFunctions utils pragmas
+    cppFunctions = translateFunctions utils pragmas
     hppMain      = hppTokenStructs $++$ hppClassDecls $++$ hppFunctions
     entrypointRefl = linesToText
       [ "ENTRYPOINT(" ++ catNameNoCoerc cat ++ ");"
       | cat <- removePrecedenceFromCats entrypts
       ]
-    hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppClassRefl
+    hppRefl = reflectionTemplates utils $++$ hppTokenRefl $++$ hppClassRefl
       $++$ entrypointRefl $++$ reflectionUndefs
     hpp = headerHead (Options.lang opts) $++$ maybeNamespace
       (hppMain $++$ wrapNamespace "reflection" hppRefl $++$ funcLocationOf)
@@ -135,14 +135,14 @@ data AstLocationUtils = AstLocationUtils
     -- | Adds the correct parameter to the start of a function parameter list
     -- (if needed).
   , astLoc_maybePrependParam ::
-         Bool      -- ^ Give the name "loc" to the parameter?
+         String    -- ^ What name to give to the parameter.
       -> [String]  -- ^ Parameter list.
       -> [String]
 
     -- | The correct comma-terminated parameter to prepend to a nonempty
     -- parameter list, or an empty string.
   , astLoc_maybeParam ::
-         Bool  -- ^ Give the name "loc" to the parameter?
+         String  -- ^ What name to give to the parameter.
       -> String
 
     -- | If needed, prepends a simple copy-initialization of the @loc@ field
@@ -205,10 +205,11 @@ newAstLocationUtils locKind isPositionalToken = case locKind of
       , astLoc_fieldDecl             = text $ storage ++ " loc;"
       }
       where
-        maybePrependParam needName = (("const " ++ storage ++ "&" ++
-            (if needName
-              then " loc"
-              else "")
+        maybePrependParam name = (("const " ++ storage ++ "&" ++
+            (if null name
+              then ""
+              else " ")
+            ++ name
             ) : )
 
 ------------------------------------------------------------------------
@@ -558,8 +559,12 @@ headerHead langname = linesToText
   ]
 
 -- | Declaration of templates in the @reflection@ namespace.
-reflectionTemplates :: Doc
-reflectionTemplates = unlinesToText [s|
+reflectionTemplates ::
+     AstLocationUtils
+  -> Doc
+reflectionTemplates AstLocationUtils
+  { astLoc_locKind = locKind
+  } = unlinesToText [s|
 template<class T> struct IsTokenStruct_t
 { static constexpr bool value = false; };
 template<class T>
@@ -609,16 +614,20 @@ template<> struct SupportsLocations_t<type> \
 REFL_NOCOERC(type, kind, loc); \
 template<> struct CoercionLevel_t<type> \
 { static constexpr int value = coerc; }
-
-#define REFL_VAR(type) REFL_NOCOERC(type, CategoryClass, true)
-#define REFL_LABEL(type, coerc) REFL(type, LabelClass, true, coerc)
-#define REFL_TOKEN(type, loc) REFL(type, TokenStruct, loc, 0)
-#define REFL_LIST(type) REFL(type, ListClass, true, 0)
-
+|]
+  $++$ linesToText
+    [ "#define REFL_VAR(type) REFL_NOCOERC(type, CategoryClass, " ++ haveLocations ++ ")"
+    , "#define REFL_LABEL(type, coerc) REFL(type, LabelClass, " ++ haveLocations ++ ", coerc)"
+    , "#define REFL_TOKEN(type, loc) REFL(type, TokenStruct, loc, 0)"
+    , "#define REFL_LIST(type) REFL(type, ListClass, " ++ haveLocations ++ ", 0)"
+    ]
+  $++$ unlinesToText [s|
 #define ENTRYPOINT(type) \
 template<> struct IsParserEntrypoint_t<type> \
 { static constexpr bool value = true; }
 |]
+  where
+    haveLocations = cppShow $ locKind /= CppLocationsNone
 
 -- | Cleanup of reflection macros.
 reflectionUndefs :: Doc
@@ -701,10 +710,11 @@ unzipStructWithReflection = foldr (\ StructWithReflection
 -- Does not check if the token is positional, believes the AstLocationUtils.
 tokenStructWithRefConstructorsHeader ::
      AstLocationUtils  -- ^ For location tracking.
+  -> Bool    -- ^ Supports locations?
   -> String  -- ^ The token name.
   -> String  -- ^ The data type (e.g. @std::string@ for a @String@ token).
   -> StructWithReflection
-tokenStructWithRefConstructorsHeader locUtils name storageType
+tokenStructWithRefConstructorsHeader locUtils hasLocs name storageType
   = StructWithReflection
   { structWithReflection_struct = linesToText
     [ "struct " ++ name ++ " {"
@@ -722,14 +732,14 @@ tokenStructWithRefConstructorsHeader locUtils name storageType
       , name ++ "& operator=(" ++ storageType ++ "&&);"
       ]) $+$ text "};"
   , structWithReflection_reflection =
-    text $ "REFL_TOKEN(" ++ name ++ ", 0);"
+    text $ "REFL_TOKEN(" ++ name ++ ", " ++ cppShow hasLocs ++ ");"
   }
   where
     AstLocationUtils
       { astLoc_maybeParam        = maybeParam
       , astLoc_fieldDecl         = locField
       } = locUtils
-    maybeParam' = maybeParam False
+    maybeParam' = maybeParam ""
 
 -- | Generates an implementation for a token structure with constructors and
 -- assignment operators taking references to the storage type.
@@ -760,7 +770,7 @@ tokenStructWithRefConstructorsImpl locUtils name storageType =
       { astLoc_maybeParam            = maybeParam
       , astLoc_maybePrependFieldInit = maybeLocInit
       } = locUtils
-    maybeParam' = maybeParam True
+    maybeParam' = maybeParam "loc"
     maybeLocInit' = maybeLocInit
     constructor valueparam valueinit =
       (text (name ++ "::" ++ name ++ "(" ++ maybeParam' ++ valueparam ++ ")")
@@ -825,22 +835,23 @@ headerTokens utils lits pragmas = StructWithReflection
     litTokens  = map makeLitToken lits
     isPosToken = astLoc_isPositionalToken utils
     noLocUtils = newAstLocationUtils CppLocationsNone isPosToken
+    makeHeader = tokenStructWithRefConstructorsHeader
     -- | Turn off locations for non-positional tokens.
-    utilsForToken tkName
-      | isPosToken tkName = utils
-      | otherwise         = noLocUtils
+    makeUserToken tkName
+      | isPosToken tkName = makeHeader utils      True  tkName "std::string"
+      | otherwise         = makeHeader noLocUtils False tkName "std::string"
     userTokens =
-      [makeUserToken $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
-    makeStringlikeToken s =
-      tokenStructWithRefConstructorsHeader noLocUtils s "std::string"
+      [ makeUserToken name
+      | CF.TokenReg CF.WithPosition { wpThing = name} _ _ <- pragmas
+      ]
+    makeStringlikeToken s = makeHeader noLocUtils False s "std::string"
     makeLitToken s
       | s == "Char"    = tokenStructHeader s "int32_t"
       | s == "String"  = makeStringlikeToken s
       | s == "Integer" = tokenStructHeader s "long"
       | s == "Double"  = tokenStructHeader s "double"
-      | otherwise {- "Ident" -} = makeStringlikeToken s
-    makeUserToken s = tokenStructWithRefConstructorsHeader
-      (utilsForToken s) s "std::string"
+      | s == "Ident"   = makeStringlikeToken s
+      | otherwise      = error $ "Unimplemented literal: " ++ s
     (structs, reflections) = unzipStructWithReflection (litTokens ++ userTokens)
 
 -- | Generates implementations for all tokens.
@@ -867,7 +878,8 @@ implTokens utils lits pragmas = vcatSpaced $ litTokens ++ userTokens
       | s == "String"  = makeStringlikeToken s
       | s == "Integer" = tokenStructImpl s "long"
       | s == "Double"  = tokenStructImpl s "double"
-      | otherwise {- "Ident" -} = makeStringlikeToken s
+      | s == "Ident"   = makeStringlikeToken s
+      | otherwise      = error $ "Unimplemented literal: " ++ s
     makeUserToken s =
       tokenStructWithRefConstructorsImpl (utilsForToken s) s "std::string"
 
@@ -886,17 +898,18 @@ data AbsynNodeCode = AbsynNodeCode
 -- | Generates declarations, reflection properties, and implementations
 -- for all classes: categories, list categories, and rules.
 defineAllClasses ::
-     ListItemStorage     -- ^ How to store list elements.
+     AstLocationUtils
+  -> ListItemStorage     -- ^ How to store list elements.
   -> [ClassDeclaration]  -- ^ Declarations to generate.
   -> AbsynNodeCode
-defineAllClasses storeListItemsBy decls = foldr (\ decl code ->
+defineAllClasses utils storeListItemsBy decls = foldr (\ decl code ->
     case decl of
       ListClassDeclaration elemCat ->
-        vcatSpaced (listDef storeListItemsBy elemCat) code
+        vcatSpaced (listDef utils storeListItemsBy elemCat) code
       NormalClassDeclaration rule ->
-        vcatSpaced (ruleDef rule) code
+        vcatSpaced (ruleDef utils rule) code
       VariantClassDeclaration name vars ->
-        vcatSpaced (variantDef name vars) code
+        vcatSpaced (variantDef utils name vars) code
       ForwardDeclaration name -> code
         {absynNodeCode_declaration =
           text ("class " ++ name ++ ";") $+$ absynNodeCode_declaration code}
@@ -922,14 +935,20 @@ defineAllClasses storeListItemsBy decls = foldr (\ decl code ->
 
 -- | Generates code for a v'ListClassDeclaration'.
 listDef ::
-     ListItemStorage  -- ^ How to store the elements.
+     AstLocationUtils
+  -> ListItemStorage  -- ^ How to store the elements.
   -> CF.Cat           -- ^ Type of elements.
   -> AbsynNodeCode
-listDef storeBy elemCat = AbsynNodeCode
+listDef AstLocationUtils
+  { astLoc_fieldDecl  = locFieldDecl
+  , astLoc_maybeParam = locMaybeParam
+  , astLoc_locKind    = locKind
+  } storeBy elemCat =
+  AbsynNodeCode
   { absynNodeCode_declaration = makeListDecl
 
   , absynNodeCode_reflection     =
-    text $ "REFL(" ++ name ++ ", CategoryClass, 0);"
+    text $ "REFL_LIST(" ++ name ++ ");"
 
   , absynNodeCode_implementation = case storeBy of
     StoreByValue   -> empty
@@ -958,6 +977,9 @@ listDef storeBy elemCat = AbsynNodeCode
       StoreByPointer ->
         (("std::make_unique<" ++ elemRawClass ++ ">(") ++ ) . ( ++ ")")
 
+    resLocAssignment = case locKind of
+      CppLocationsNone -> empty
+      _                -> text "res.loc = loc;"
     makeListDecl = linesToText
       [ concat
         ["class "
@@ -968,74 +990,108 @@ listDef storeBy elemCat = AbsynNodeCode
         ]
       , "public:"
       , "    using deque::deque;"
-      ] $+$ (case storeBy of
-        StoreByValue -> empty
+      ] $+$ nest 4 (locFieldDecl $+$ case storeBy of
+        StoreByValue   -> empty
         StoreByPointer -> linesToText
           [ concat
-            [ "    "
-            , name
+            [ name
             , "(const "
             , name
             , "& other);  /* clone */"
             ]
           , concat
-            [ "    "
-            , name
+            [ name
             , "("
             , name
             , "&& other) = default;"
             ]
           , concat
-            [ "    "
-            , name
+            [ name
             , "& operator=(const "
             , name
             , "& other);  /* discard & replace */"
             ]
           , concat
-            [ "    "
-            , name
+            [ name
             , "& operator=("
             , name
             , "&& other) = default;"
             ]
-          ])
+          ]
       $+$ linesToText
-      [ "    template <class... TItems>"
-      , "    static inline " ++ name ++ " Create(TItems&&... items) {"
-      , "        " ++ name ++ " res;"
+      [ "template <class... TItems>"
       , concat
-        [ "        (res.emplace_back("
+        [ "static inline "
+        , name
+        , " Create("
+        , locMaybeParam "loc"
+        , "TItems&&... items) {"
+        ]
+      , "    " ++ name ++ " res;"
+      ] $+$ resLocAssignment
+      $+$ linesToText
+      [ concat
+        [ "    (res.emplace_back("
         , elemEmplaceWrap "std::forward<TItems>(items)"
         , "), ...);"
         ]
-      , "        return res;"
-      , "    }"
+      , "    return res;"
+      , "}"
       ] $+$ (case storeBy of
         StoreByValue   -> empty
         StoreByPointer -> linesToText
-          [ "    template <class... TItems>"
-          , "    static inline " ++ name
+          [ "template <class... TItems>"
+          , "static inline " ++ name
             ++ " CreateFromPointers(std::unique_ptr<TItems>&&... items) {"
-          , "        " ++ name ++ " res;"
-          , "        (res.emplace_back(std::move<std::unique_ptr<TItems>>"
+          , "    " ++ name ++ " res;"
+          , "    (res.emplace_back(std::move<std::unique_ptr<TItems>>"
             ++ "(items)), ...);"
-          , "        return res;"
-          , "    }"
+          , "    return res;"
+          , "}"
           ])
-      $+$ text "};"
+      ) $+$ text "};"
 
 -- | Generates code for a v'VariantClassDeclaration'.
 variantDef ::
-     String    -- ^ The name of the variant class.
+     AstLocationUtils
+  -> String    -- ^ The name of the variant class.
   -> [String]  -- ^ The names of variants (labels).
   -> AbsynNodeCode
-variantDef name variants = AbsynNodeCode
+variantDef AstLocationUtils
+  { astLoc_locKind      = locKind
+  , astLoc_storageClass = locStorageClass
+  } name variants =
+  AbsynNodeCode
   { absynNodeCode_declaration    = case variants of
     [singleVariant] -> classTop $+$ singleVariantBody singleVariant
-    _               -> classTop $+$ text "};"
+    _               -> classTop
+      $+$ (if hasLocation
+        then nest 4 $ linesToText
+          [ "const " ++ locStorageClass ++ "& Location() const;"
+          , locStorageClass ++ "& Location();"
+          ]
+        else empty)
+      $+$ text "};"
   , absynNodeCode_reflection     = text $ "REFL_VAR(" ++ name ++ ");"
-  , absynNodeCode_implementation = empty
+  , absynNodeCode_implementation =
+    if hasLocation && length variants /= 1
+    then linesToText
+      [ "// " ++ name
+      , ""
+      , "const " ++ locStorageClass ++ "& " ++ name ++ "::Location() const {"
+      , "    return std::visit([](const auto& v) -> const "
+        ++ locStorageClass ++ "& {"
+      , "        return v.loc;"
+      , "    }, *this);"
+      , "}"
+      , ""
+      , "" ++ locStorageClass ++ "& " ++ name ++ "::Location() {"
+      , "    return std::visit([](auto& v) -> " ++ locStorageClass ++ "& {"
+      , "        return v.loc;"
+      , "    }, *this);"
+      , "}"
+      ]
+    else empty
   }
   where
     classTop = linesToText
@@ -1049,34 +1105,54 @@ variantDef name variants = AbsynNodeCode
       , "public:"
       , "    using variant::variant;"
       ]
-    singleVariantBody singleVariant = linesToText
-      [ "    inline class " ++ singleVariant ++ "& " ++ singleVariant ++ "() {"
-      , "        return std::get<class " ++ singleVariant ++ ">(*this);"
-      , "    }"
-      , "    inline const class " ++ singleVariant ++ "& " ++ singleVariant
-        ++ "() const {"
-      , "        return std::get<class " ++ singleVariant ++ ">(*this);"
-      , "    }"
-      , "};"
-      ]
+    singleVariantBody singleVariant = nest 4 (linesToText
+        [ "inline class " ++ singleVariant ++ "& " ++ singleVariant ++ "() {"
+        , "    return std::get<class " ++ singleVariant ++ ">(*this);"
+        , "}"
+        , "inline const class " ++ singleVariant ++ "& "
+          ++ singleVariant ++ "() const {"
+        , "    return std::get<class " ++ singleVariant ++ ">(*this);"
+        , "}"
+        ]
+        $+$ inlineLocGetters singleVariant)
+      $+$ text "};"
+    inlineLocGetters singleVariant
+      | hasLocation = linesToText
+        [ "inline const " ++ locStorageClass ++ "& Location() const {"
+        , "    return std::get<class " ++ singleVariant ++ ">(*this).loc;"
+        , "}"
+        , "inline " ++ locStorageClass ++ "& Location() {"
+        , "    return std::get<class " ++ singleVariant ++ ">(*this).loc;"
+        , "}"
+        ]
+      | otherwise   = empty
+    hasLocation = locKind /= CppLocationsNone
 
 -- | Generates the declaration, properties, and implementation for a labeled
 -- BNF rule.
-ruleDef :: CF.Rule -> AbsynNodeCode
-ruleDef r = let
+ruleDef :: AstLocationUtils -> CF.Rule -> AbsynNodeCode
+ruleDef AstLocationUtils
+  { astLoc_maybePrependParam     = maybePrependLocParam
+  , astLoc_maybePrependFieldInit = maybePrependLocInit
+  , astLoc_maybeFieldAsg         = maybeLocFieldAsg
+  , astLoc_fieldDecl             = locFieldDecl
+  } r =
+  let
     name = CF.funName r
     (indexedNames, members) = unzip $ fieldNames $ CF.rhsRule r
     storageTypes = map storageType' members
     normalTypes = map cat2typeName members
-    constructorSignatureOrEmpty
-      | null members = empty
-      | otherwise    = text $ name ++ "("
-        ++ intercalate ", " (map ( ++ "&&") normalTypes)
-        ++ ");"
+    constructorSignatureOrEmpty =
+      let
+        params = maybePrependLocParam "" (map ( ++ "&&") normalTypes)
+      in
+        if null params
+        then empty
+        else text $ name ++ "(" ++ intercalate ", " params ++ ");"
     headerClass = linesToText
       [ "class " ++ name ++ " {"
       , "public:"
-      ] $+$ nest 4 (linesToText
+      ] $+$ nest 4 (locFieldDecl $+$ linesToText
         [ name ++ "() = default;"
         , name ++ "(const " ++ name ++ "&);  /* clone */"
         , name ++ "(" ++ name ++ "&&) = default;"
@@ -1091,7 +1167,7 @@ ruleDef r = let
       $+$ text "};"
 
     headerRefls = text
-      $ "REFL(" ++ name ++ ", LabelClass, " ++ show (CF.precRule r) ++ ");"
+      $ "REFL_LABEL(" ++ name ++ ", " ++ show (CF.precRule r) ++ ");"
 
     cloneValue storageCat value
       | isPointerType' storageCat =
@@ -1106,25 +1182,32 @@ ruleDef r = let
     copyCtor =
       (text
       (name ++ "::" ++ name ++ "(const " ++ name ++ "& other [[maybe_unused]])")
-      $+$ ctorInitializers
-        [name ++ "(" ++ cloneValue cat ("other." ++ name) ++ ")"
-        | (name, cat) <- zip indexedNames members])
+      $+$ ctorInitializers (maybePrependLocInit
+        [ name ++ "(" ++ cloneValue cat ("other." ++ name) ++ ")"
+        | (name, cat) <- zip indexedNames members]))
       <> text " {}"
     copyAsg = text (name ++ "& " ++ name
              ++ "::operator=(const " ++ name ++ "& other [[maybe_unused]]) {")
-      $+$ nest 4 (linesToText (
+      $+$ nest 4 (maybeLocFieldAsg $+$ linesToText
         [name ++ " = " ++ cloneValue cat ("other." ++ name) ++ ";"
         | (name, cat) <- zip indexedNames members]
-        ++ ["return *this;"])) $+$ text "}"
-    ruleCtorOrEmpty
-      | null members = empty
-      | otherwise = text (name ++ "::" ++ name ++ "(" ++ intercalate ", "
-          [cat2typeName cat ++ "&& _" ++ show i
-          | (cat, i :: Int) <- zip members [1..]] ++ ")")
-        $+$ ctorInitializers
-          [name ++ "(" ++ moveValue cat ('_' : show i) ++ ")"
+        $+$ text "return *this;")
+      $+$ text "}"
+    ruleCtorOrEmpty =
+      let
+        params = maybePrependLocParam "loc"
+          [ cat2typeName cat ++ "&& _" ++ show i
+          | (cat, i :: Int) <- zip members [1..]]
+        initializers = maybePrependLocInit
+          [ name ++ "(" ++ moveValue cat ('_' : show i) ++ ")"
           | (name, cat, i :: Int) <- zip3 indexedNames members [1..]]
-        <> text " {}"
+      in
+        if null params
+        then empty
+        else
+          (text (name ++ "::" ++ name ++ "(" ++ intercalate ", " params ++ ")")
+          $+$ ctorInitializers initializers)
+          <> text " {}"
     impl = vcatSpaced
       [ text $ "// " ++ name
       , copyCtor
@@ -1133,8 +1216,8 @@ ruleDef r = let
       ]
 
   in AbsynNodeCode
-    { absynNodeCode_declaration = headerClass
-    , absynNodeCode_reflection = headerRefls
+    { absynNodeCode_declaration    = headerClass
+    , absynNodeCode_reflection     = headerRefls
     , absynNodeCode_implementation = impl
     }
   where
@@ -1175,17 +1258,19 @@ ruleDef r = let
 
 -- | Generates user function headers.
 declareFunctions ::
-     [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
+     AstLocationUtils
+  -> [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
   -> Doc
-declareFunctions pragmas =
-  entitleUserFunctions [declareFunction def | CF.FunDef def <- pragmas]
+declareFunctions utils pragmas =
+  entitleUserFunctions [declareFunction utils def | CF.FunDef def <- pragmas]
 
 -- | Generates user function implementations.
 translateFunctions ::
-     [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
+     AstLocationUtils
+  -> [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
   -> Doc
-translateFunctions pragmas =
-  entitleUserFunctions [translateFunction def | CF.FunDef def <- pragmas]
+translateFunctions utils pragmas =
+  entitleUserFunctions [translateFunction utils def | CF.FunDef def <- pragmas]
 
 -- | Concatenates the function 'Doc's and prepends a header if the list is
 -- not empty.
@@ -1198,17 +1283,22 @@ entitleUserFunctions = \case
 
 -- | Generates the header declaration for one user-defined function.
 declareFunction ::
-     CF.Define  -- ^ The user-defined function.
+     AstLocationUtils
+  -> CF.Define  -- ^ The user-defined function.
   -> Doc
-declareFunction = (<> text ";") . userFunctionSignature
+declareFunction utils = (<> text ";") . userFunctionSignature utils
 
 -- | Generates the implementation for one user-defined function.
 translateFunction ::
-     CF.Define -- ^ The user-defined function.
+     AstLocationUtils
+  -> CF.Define -- ^ The user-defined function.
   -> Doc
-translateFunction def =
-  (userFunctionSignature def <> text " {") $+$ nest 4 body $+$ text "};"
+translateFunction utils def =
+  (userFunctionSignature utils def <> text " {") $+$ nest 4 body $+$ text "};"
   where
+    hasLocation = astLoc_locKind utils /= CppLocationsNone
+    isPosToken  = astLoc_isPositionalToken utils
+
     -- It is possible to define a function that uses one parameter several
     -- times:
     --   define dup arg1 = ExprPlus arg1 arg1;
@@ -1232,7 +1322,11 @@ translateFunction def =
       } = def
     (_, _, dBody', reversedCloneDecls) =
       defineClones (getUsedFuncNamesInExpr dBody)
-        (Set.fromList $ map fst dParams) dBody []
+        (Set.fromList $ maybeAddLocParamName $ map fst dParams) dBody []
+      where
+        maybeAddLocParamName
+          | hasLocation = (userFuncLocationParam : )
+          | otherwise   = id
 
     mapParamNameType :: Map String String
     mapParamNameType = Map.fromList [(name, className t) | (name, t) <- dParams]
@@ -1245,25 +1339,41 @@ translateFunction def =
     translateExpr :: CF.Exp -> Doc
     translateExpr expr = case expr of
       CF.App funName (CF.FunT _ retType) args -> let
-          cppArgs = foldr ($+$) empty $ punctuate comma $ map translateExpr args
+          cppArgs = map translateExpr args
         in callFunction retType funName cppArgs
         where
+          callFunction ::
+               CF.Base  -- ^ Expected return type.
+            -> String   -- ^ Function/constructor name.
+            -> [Doc]    -- ^ Arguments.
+            -> Doc
           callFunction = \case
-            CF.ListT _    -> callWrap
+            CF.ListT _        -> callWrap hasLocation
             CF.BaseT typename -> \ fname ->
               if isClassLabel fname
               then
                 if typename /= fname  -- equal for custom tokens
-                then callWrap typename . callWrap fname  -- variant(label(...))
-                else callWrap fname  -- customToken(...)
-              else callWrap ("make_" ++ fname)  -- function
-      CF.Var      name -> callWrap "std::move" $ text   name
-      CF.LitInt    val -> callWrap "Integer"   $ text $ show   val
-      CF.LitDouble val -> callWrap "Double"    $ text $ show   val
-      CF.LitChar   val -> callWrap "Char"      $ text $ show $ ord val
-      CF.LitString val -> text $ cppShowString val
+                then  -- variant(label(...))
+                  callWrap False typename . (: []) . callWrap hasLocation fname
+                else  -- customToken(...)
+                  callWrap (hasLocation && isPosToken fname) fname
+              else callWrap hasLocation ("make_" ++ fname)  -- function
+      CF.Var      name -> callWrap False "std::move" [text   name]
+      CF.LitInt    val -> callWrap False "Integer"   [text $ show   val]
+      CF.LitDouble val -> callWrap False "Double"    [text $ show   val]
+      CF.LitChar   val -> callWrap False "Char"      [text $ show $ ord val]
+      CF.LitString val -> text $ cppShow val
 
-    callWrap fname = (text (fname ++ "(") <> ) . ( <> text ")")
+    callWrap ::
+         Bool    -- ^ Should we prepend a location argument?
+      -> String  -- ^ Function name.
+      -> [Doc]   -- ^ Arguments.
+      -> Doc     -- ^ Function call.
+    callWrap withLoc fname = (text (fname ++ "(") <> ) . ( <> text ")")
+      . foldr ($+$) empty . punctuate comma
+      . (if withLoc
+        then (text userFuncLocationParam : )
+        else id)
 
     restoreLists :: CF.Exp -> CF.Exp
     restoreLists = \case
@@ -1332,12 +1442,21 @@ translateFunction def =
           where
             name = suggested ++ "_" ++ show i
 
+-- | The name given to the location parameter in user-defined functions.
+userFuncLocationParam :: String
+userFuncLocationParam = "__bnfc_loc__"
+
 -- | Generates the signature (return type + name + parameters)
 -- for one user-defined function.
 userFunctionSignature ::
-     CF.Define  -- ^ The user-defined function.
+     AstLocationUtils
+  -> CF.Define  -- ^ The user-defined function.
   -> Doc
-userFunctionSignature (CF.Define
+userFunctionSignature
+  AstLocationUtils
+    { astLoc_maybePrependParam = maybePrependLocParam
+    }
+  (CF.Define
     { defName = name
     , defArgs = params
     , defType = retType
@@ -1346,7 +1465,9 @@ userFunctionSignature (CF.Define
   , " make_"
   , CF.wpThing name
   , "("
-  , intercalate ", " [className t ++ "&& " ++ param | (param, t) <- params]
+  , intercalate ", "
+    $ maybePrependLocParam userFuncLocationParam
+      [className t ++ "&& " ++ param | (param, t) <- params]
   , ")"
   ]
 

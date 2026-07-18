@@ -9,6 +9,8 @@ module BNFC.Backend.CPPVar.CPPUtil
   (
     -- * C++ files
     CPPHeaderSourcePair(..)
+  , CPPShow(..)
+  , cppShowString
 
     -- * Additional functions on 'Text.PrettyPrint.Doc'
   , ($++$)
@@ -41,7 +43,6 @@ module BNFC.Backend.CPPVar.CPPUtil
 
     -- * UTF-8
   , utf8encode
-  , cppShowString
 
     -- * Location tracking
   , LocationKind(..)
@@ -78,6 +79,49 @@ data CPPHeaderSourcePair = CPPHeaderSourcePair
   , cppSourceText :: !Doc
     -- ^ The content of the source file.
   }
+
+-- | A class of types representable as C++ literals.
+class CPPShow a where
+  -- | Represent something as a C++ literal.
+  cppShow :: a -> String
+
+-- | A string literal in C++ with the given value (encoded in UTF-8).
+cppShowString ::
+     String  -- ^ The value.
+  -> String  -- ^ The representation in C++ in UTF-8.
+cppShowString s =
+  '"' : (concatMap reprChar (concatMap (utf8encode . ord) s) ++ "\"")
+  where
+    reprChar :: Int8 -> String
+    reprChar = \case
+      7  -> "\\a"
+      8  -> "\\b"
+      9  -> "\\t"
+      10 -> "\\n"
+      11 -> "\\v"
+      12 -> "\\f"
+      13 -> "\\r"
+      34 -> "\\\""
+      92 -> "\\\\"
+      other ->
+        if 32 <= other && other < 127
+        then [chr $ fromIntegral other]
+        else
+          let
+            code =
+              if other < 0
+              then 256 + fromIntegral other :: Int
+              else fromIntegral other :: Int
+          in '\\' : pad3 (showOct code "")
+    pad3 s = replicate (3 - length s) '0' ++ s
+
+instance CPPShow String where
+  cppShow s = cppShowString s
+
+instance CPPShow Bool where
+  cppShow b
+    | b         = "true"
+    | otherwise = "false"
 
 ------------------------------------------------------------------------
 -- * Additional functions on 'Text.PrettyPrint.Doc'.
@@ -360,36 +404,6 @@ utf8encode = map fromIntegral . helper
         ]
       where
         shiftR6 n c = (c `shiftR` (6 * n)) .&. 0x3f
-
--- | A string literal in C++ with the given value (encoded in UTF-8).
-cppShowString ::
-     String  -- ^ The value.
-  -> String  -- ^ The representation in C++ in UTF-8.
-cppShowString s =
-  '"' : (concatMap reprChar (concatMap (utf8encode . ord) s) ++ "\"")
-  where
-    reprChar :: Int8 -> String
-    reprChar = \case
-      7  -> "\\a"
-      8  -> "\\b"
-      9  -> "\\t"
-      10 -> "\\n"
-      11 -> "\\v"
-      12 -> "\\f"
-      13 -> "\\r"
-      34 -> "\\\""
-      92 -> "\\\\"
-      other ->
-        if 32 <= other && other < 127
-        then [chr $ fromIntegral other]
-        else
-          let
-            code =
-              if other < 0
-              then 256 + fromIntegral other :: Int
-              else fromIntegral other :: Int
-          in '\\' : pad3 (showOct code "")
-    pad3 s = replicate (3 - length s) '0' ++ s
 
 ------------------------------------------------------------------------
 -- * Location tracking.
