@@ -57,24 +57,28 @@ makeAbsyn ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> [CF.Literal]           -- ^ Used built-in tokens.
   -> [CF.Pragma]            -- ^ User-defined pragmas (contain custom tokens).
+  -> (String -> Bool)       -- ^ Checks if a token is positional.
   -> [CF.Cat]               -- ^ Parser entrypoints.
   -> MergedGroupedRules
     -- ^ Rule labels in the grammar description,
     -- grouped by the grammar category.
   -> GeneratedAbsyn
-makeAbsyn opts literals pragmas entrypts mergedGroupedRules = GeneratedAbsyn
-  { absynCode = CPPHeaderSourcePair
-    { cppHeaderText = hpp
-    , cppSourceText = cpp
+makeAbsyn opts literals pragmas isPosToken entrypts mergedGroupedRules
+  = GeneratedAbsyn
+    { absynCode = CPPHeaderSourcePair
+      { cppHeaderText = hpp
+      , cppSourceText = cpp
+      }
+    , absynListItemStorage = listStorage
     }
-  , absynListItemStorage = listStorage
-  }
   where
+    loc            = getLocationKind opts
+    utils          = newAstLocationUtils loc isPosToken
     maybeNamespace = wrapPackage opts
     StructWithReflection
       { structWithReflection_struct = hppTokenStructs
       , structWithReflection_reflection = hppTokenRefl
-      } = headerTokens literals pragmas
+      } = headerTokens utils literals pragmas
     (classOrder, listStorage) =
       decideClassDeclarations mergedGroupedRules $ Options.listItemStorage opts
     AbsynNodeCode
@@ -84,18 +88,18 @@ makeAbsyn opts literals pragmas entrypts mergedGroupedRules = GeneratedAbsyn
       } = defineAllClasses listStorage classOrder
     hppFunctions = declareFunctions pragmas
     cppFunctions = translateFunctions pragmas
-    hppMain = hppTokenStructs $++$ hppClassDecls $++$ hppFunctions
+    hppMain      = hppTokenStructs $++$ hppClassDecls $++$ hppFunctions
     entrypointRefl = linesToText
       [ "ENTRYPOINT(" ++ catNameNoCoerc cat ++ ");"
       | cat <- removePrecedenceFromCats entrypts
       ]
     hppRefl = reflectionTemplates $++$ hppTokenRefl $++$ hppClassRefl
       $++$ entrypointRefl $++$ reflectionUndefs
-    hpp = headerHead $++$ maybeNamespace
-      (hppMain $++$ wrapNamespace "reflection" hppRefl)
+    hpp = headerHead (Options.lang opts) $++$ maybeNamespace
+      (hppMain $++$ wrapNamespace "reflection" hppRefl $++$ funcLocationOf)
     cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
       $++$ maybeNamespace
-        (clonePtrImpl $++$ implTokens literals pragmas
+        (clonePtrImpl $++$ implTokens utils literals pragmas
         $++$ cppRules $++$ cppFunctions)
 
 -- | Code and the decision about list item storage. Returned from 'makeAbsyn'.
@@ -108,6 +112,104 @@ data GeneratedAbsyn = GeneratedAbsyn
 data ListItemStorage
   = StoreByValue    -- ^ @std::deque@ of @ItemClass@.
   | StoreByPointer  -- ^ @std::deque@ of @std::unique_ptr@ of @ItemClass@.
+
+------------------------------------------------------------------------
+-- * Utility.
+------------------------------------------------------------------------
+
+-- | Formats field initializers.
+ctorInitializers ::
+     [String]  -- ^ Initializer statements.
+  -> Doc
+ctorInitializers = nest 4 . \case
+  []           -> empty
+  first : rest -> foldr ($+$) empty
+    $ text (": " ++ first) : map (text . (", " ++)) rest
+
+-- | A collection of functions and values for location tracking.
+data AstLocationUtils = AstLocationUtils
+  {
+    -- | The way we track locations.
+    astLoc_locKind :: LocationKind
+
+    -- | Adds the correct parameter to the start of a function parameter list
+    -- (if needed).
+  , astLoc_maybePrependParam ::
+         Bool      -- ^ Give the name "loc" to the parameter?
+      -> [String]  -- ^ Parameter list.
+      -> [String]
+
+    -- | The correct comma-terminated parameter to prepend to a nonempty
+    -- parameter list, or an empty string.
+  , astLoc_maybeParam ::
+         Bool  -- ^ Give the name "loc" to the parameter?
+      -> String
+
+    -- | If needed, prepends a simple copy-initialization of the @loc@ field
+    -- using the @loc@ parameter.
+  , astLoc_maybePrependFieldInit ::
+         [String]  -- ^ Existing list of initializations.
+      -> [String]
+
+    -- | A simple copy-assignment of the @loc@ field or 'empty'.
+  , astLoc_maybeFieldAsg :: Doc
+
+    -- | The C++ (un-cv-qualified, unreferenced) type of the @location@ field.
+    -- Throws if we do not store locations.
+  , astLoc_storageClass  :: String
+
+    -- | Declaration of a @loc@ field storing the location of a node.
+    -- 'empty' if not needed.
+  , astLoc_fieldDecl     :: Doc
+
+    -- | Checks if a user-defined token tracks its position.
+  , astLoc_isPositionalToken ::
+         String  -- ^ Token name.
+      -> Bool
+  }
+
+-- | Initializes AST location utils suitably.
+newAstLocationUtils ::
+     LocationKind
+  -> (String -> Bool)  -- ^ Checks if a token is defined as positional.
+  -> AstLocationUtils
+newAstLocationUtils locKind isPositionalToken = case locKind of
+  CppLocationsNone -> initial
+    { astLoc_maybePrependParam     = const id
+    , astLoc_maybeParam            = const ""
+    , astLoc_maybePrependFieldInit = id
+    , astLoc_maybeFieldAsg         = empty
+    , astLoc_storageClass          = error "Storage of locations undefined"
+    , astLoc_fieldDecl             = empty
+    }
+  CppLocationsStart -> finalize "position" initial
+  CppLocationsRange -> finalize "location" initial
+  where
+    initial = AstLocationUtils
+      { astLoc_locKind               = locKind
+      , astLoc_isPositionalToken     = isPositionalToken
+      , astLoc_maybePrependParam     = undefined
+      , astLoc_maybeParam            = undefined
+      , astLoc_maybePrependFieldInit = undefined
+      , astLoc_maybeFieldAsg         = undefined
+      , astLoc_storageClass          = undefined
+      , astLoc_fieldDecl             = undefined
+      }
+    finalize storage utils = utils
+      { astLoc_maybePrependParam     = maybePrependParam
+      , astLoc_maybeParam            =
+        intercalate ", " . flip maybePrependParam [""]
+      , astLoc_maybePrependFieldInit = ("loc(loc)" : )
+      , astLoc_maybeFieldAsg         = text "loc = other.loc;"
+      , astLoc_storageClass          = storage
+      , astLoc_fieldDecl             = text $ storage ++ " loc;"
+      }
+      where
+        maybePrependParam needName = (("const " ++ storage ++ "&" ++
+            (if needName
+              then " loc"
+              else "")
+            ) : )
 
 ------------------------------------------------------------------------
 -- * Handling type completeness (using reordering and pointers).
@@ -443,13 +545,16 @@ topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
 ------------------------------------------------------------------------
 
 -- | @include@ directives at the top.
-headerHead :: Doc
-headerHead = linesToText
+headerHead ::
+     String  -- ^ The language name.
+  -> Doc
+headerHead langname = linesToText
   [ "#pragma once"
   , "#include <memory>"
   , "#include <string>"
   , "#include <deque>"
   , "#include <variant>"
+  , "#include \"" ++ langname ++ ".loc.hpp\""
   ]
 
 -- | Declaration of templates in the @reflection@ namespace.
@@ -465,6 +570,11 @@ template<class T> struct IsCategoryClass_t
 template<class T>
 constexpr const bool IsCategoryClass = IsCategoryClass_t<T>::value;
 
+template<class T> struct IsListClass_t
+{ static constexpr bool value = false; };
+template<class T>
+constexpr const bool IsListClass = IsListClass_t<T>::value;
+
 template<class T> struct IsLabelClass_t
 { static constexpr bool value = false; };
 template<class T>
@@ -475,6 +585,11 @@ template<class T> struct IsParserEntrypoint_t
 template<class T>
 constexpr const bool IsParserEntrypoint = IsParserEntrypoint_t<T>::value;
 
+template<class T> struct SupportsLocations_t
+{ static constexpr bool value = false; };
+template<class T>
+constexpr const bool SupportsLocations = SupportsLocations_t<T>::value;
+
 template<class T> struct CoercionLevel_t {};
 template<class T> constexpr int CoercionLevel = CoercionLevel_t<T>::value;
 
@@ -482,30 +597,36 @@ template<class T> struct SyntaxNodeName_t {};
 template<class T>
 constexpr const char* SyntaxNodeName = SyntaxNodeName_t<T>::value;
 
-#define REFL_KINDNAME(kind, _t) Is##kind##_t
-
-#define REFL_NOCOERC(type, kind) \
-template<> struct REFL_KINDNAME(kind, _t)<type> \
+#define REFL_NOCOERC(type, kind, loc) \
+template<> struct Is##kind##_t<type> \
 { static constexpr bool value = true; }; \
 template<> struct SyntaxNodeName_t<type> \
-{ static constexpr const char* value = #type; }
+{ static constexpr const char* value = #type; }; \
+template<> struct SupportsLocations_t<type> \
+{ static constexpr bool value = loc; }
 
-#define REFL(type, kind, coerc) \
-REFL_NOCOERC(type, kind); \
+#define REFL(type, kind, loc, coerc) \
+REFL_NOCOERC(type, kind, loc); \
 template<> struct CoercionLevel_t<type> \
-{ static constexpr int value = coerc; } \
+{ static constexpr int value = coerc; }
 
-#define REFL_VAR(type) REFL_NOCOERC(type, CategoryClass)
+#define REFL_VAR(type) REFL_NOCOERC(type, CategoryClass, true)
+#define REFL_LABEL(type, coerc) REFL(type, LabelClass, true, coerc)
+#define REFL_TOKEN(type, loc) REFL(type, TokenStruct, loc, 0)
+#define REFL_LIST(type) REFL(type, ListClass, true, 0)
 
 #define ENTRYPOINT(type) \
 template<> struct IsParserEntrypoint_t<type> \
-{ static constexpr bool value = true; } \
+{ static constexpr bool value = true; }
 |]
 
 -- | Cleanup of reflection macros.
 reflectionUndefs :: Doc
 reflectionUndefs = unlinesToText [s|
 #undef ENTRYPOINT
+#undef REFL_LIST
+#undef REFL_TOKEN
+#undef REFL_LABEL
 #undef REFL_VAR
 #undef REFL
 #undef REFL_NOCOERC
@@ -522,6 +643,28 @@ clonePtrImpl = linesToText
   , "    return std::make_unique<T>(*p);"
   , "}"
   ]
+
+-- | A template function that extracts the stored location from any supporting
+-- AST node.
+funcLocationOf :: Doc
+funcLocationOf = unlinesToText [s|
+// Requires location tracking. Returns an (optionally const) lvalue reference.
+template<class T>
+inline auto& LocationOf(T& node) {
+    using PureT = std::decay_t<T>;
+    static_assert(reflection::SupportsLocations<PureT>,
+        "This class does not support location tracking");
+    if constexpr (
+            reflection::IsLabelClass<PureT>
+            || reflection::IsTokenStruct<PureT>
+            || reflection::IsListClass<PureT>)
+        return node.loc;
+    else if constexpr (reflection::IsCategoryClass<PureT>)
+        return node.Location();
+    else
+        static_assert(false, "Unimplemented LocationOf");
+}
+|]
 
 ------------------------------------------------------------------------
 -- * Tokens.
@@ -554,47 +697,55 @@ unzipStructWithReflection = foldr (\ StructWithReflection
 
 -- | Generates a declaration for a token structure with constructors and
 -- assignment operators taking references to the storage type.
+--
+-- Does not check if the token is positional, believes the AstLocationUtils.
 tokenStructWithRefConstructorsHeader ::
-     String  -- ^ The token name.
+     AstLocationUtils  -- ^ For location tracking.
+  -> String  -- ^ The token name.
   -> String  -- ^ The data type (e.g. @std::string@ for a @String@ token).
   -> StructWithReflection
-tokenStructWithRefConstructorsHeader name storageType = StructWithReflection
+tokenStructWithRefConstructorsHeader locUtils name storageType
+  = StructWithReflection
   { structWithReflection_struct = linesToText
     [ "struct " ++ name ++ " {"
     , "public:"
-    ] $+$ nest 4 (linesToText
+    ] $+$ nest 4 (locField $+$ linesToText
       [ storageType ++ " " ++ tokenStorageName name ++ ";"
       , name ++ "() = default;"
       , name ++ "(const " ++ name ++ "&) = default;"
       , name ++ "(" ++ name ++ "&&) = default;"
       , name ++ "& operator=(const " ++ name ++ "&) = default;"
       , name ++ "& operator=(" ++ name ++ "&&) = default;"
-      , name ++ "(const " ++ storageType ++ "&);  /* implicit */"
-      , name ++ "(" ++ storageType ++ "&&);  /* implicit */"
+      , name ++ "(" ++ maybeParam' ++ "const " ++ storageType ++ "&);"
+      , name ++ "(" ++ maybeParam' ++ storageType ++ "&&);"
       , name ++ "& operator=(const " ++ storageType ++ "&);"
       , name ++ "& operator=(" ++ storageType ++ "&&);"
       ]) $+$ text "};"
   , structWithReflection_reflection =
-    text $ "REFL(" ++ name ++ ", TokenStruct, 0);"
+    text $ "REFL_TOKEN(" ++ name ++ ", 0);"
   }
+  where
+    AstLocationUtils
+      { astLoc_maybeParam        = maybeParam
+      , astLoc_fieldDecl         = locField
+      } = locUtils
+    maybeParam' = maybeParam False
 
 -- | Generates an implementation for a token structure with constructors and
 -- assignment operators taking references to the storage type.
+--
+-- Does not check if the token is positional, believes the AstLocationUtils.
 tokenStructWithRefConstructorsImpl ::
-     String  -- ^ The token name.
+     AstLocationUtils
+  -> String  -- ^ The token name.
   -> String  -- ^ The data type (e.g. @std::string@ for a @String@ token).
   -> Doc
-tokenStructWithRefConstructorsImpl name storageType =
-  linesToText
-    [ "// token: " ++ name
-    , ""
-    , name ++ "::" ++ name ++ "(const " ++ storageType ++ "& v)"
-    , "    : " ++ tokenStorageName name ++ "(v) {}"
-    , ""
-    , name ++ "::" ++ name ++ "(" ++ storageType ++ "&& v)"
-    , "    : " ++ tokenStorageName name ++ "(std::move(v)) {}"
-    , ""
-    , name ++ "& " ++ name ++ "::operator=(const " ++ storageType ++ "& v) {"
+tokenStructWithRefConstructorsImpl locUtils name storageType =
+  text ("// token: " ++ name)
+  $++$ constructor ("const " ++ storageType ++ "& v") "(v)"
+  $++$ constructor (storageType ++ "&& v") "(std::move(v))"
+  $++$ linesToText
+    [ name ++ "& " ++ name ++ "::operator=(const " ++ storageType ++ "& v) {"
     , "    " ++ tokenStorageName name ++ " = v;"
     , "    return *this;"
     , "}"
@@ -604,9 +755,22 @@ tokenStructWithRefConstructorsImpl name storageType =
     , "    return *this;"
     , "}"
     ]
+  where
+    AstLocationUtils
+      { astLoc_maybeParam            = maybeParam
+      , astLoc_maybePrependFieldInit = maybeLocInit
+      } = locUtils
+    maybeParam' = maybeParam True
+    maybeLocInit' = maybeLocInit
+    constructor valueparam valueinit =
+      (text (name ++ "::" ++ name ++ "(" ++ maybeParam' ++ valueparam ++ ")")
+      $+$ ctorInitializers (maybeLocInit' [tokenStorageName name ++ valueinit]))
+        <> text " {}"
 
 -- | Generates a declaration for a token structure with a by-value constructor
 -- and assignment operator.
+--
+-- By-value tokens are currently never positional.
 tokenStructHeader ::
      String  -- ^ The token name.
   -> String  -- ^ The data type (e.g. @std::string@ for a @String@ token).
@@ -649,43 +813,63 @@ tokenStructImpl name storageType =
 
 -- | Generates declarations for all tokens.
 headerTokens ::
-     [CF.Literal]  -- ^ The built-in tokens.
+     AstLocationUtils
+  -> [CF.Literal]  -- ^ The built-in tokens.
   -> [CF.Pragma]   -- ^ Contains user-defined tokens.
   -> StructWithReflection
-headerTokens lits pragmas = StructWithReflection
+headerTokens utils lits pragmas = StructWithReflection
   { structWithReflection_struct     = vcatSpaced structs
   , structWithReflection_reflection = foldr ($+$) empty reflections
   }
   where
     litTokens  = map makeLitToken lits
+    isPosToken = astLoc_isPositionalToken utils
+    noLocUtils = newAstLocationUtils CppLocationsNone isPosToken
+    -- | Turn off locations for non-positional tokens.
+    utilsForToken tkName
+      | isPosToken tkName = utils
+      | otherwise         = noLocUtils
     userTokens =
       [makeUserToken $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
+    makeStringlikeToken s =
+      tokenStructWithRefConstructorsHeader noLocUtils s "std::string"
     makeLitToken s
       | s == "Char"    = tokenStructHeader s "int32_t"
-      | s == "String"  = tokenStructWithRefConstructorsHeader s "std::string"
+      | s == "String"  = makeStringlikeToken s
       | s == "Integer" = tokenStructHeader s "long"
       | s == "Double"  = tokenStructHeader s "double"
-      | otherwise {- "Ident" -} = makeUserToken s
-    makeUserToken s = tokenStructWithRefConstructorsHeader s "std::string"
+      | otherwise {- "Ident" -} = makeStringlikeToken s
+    makeUserToken s = tokenStructWithRefConstructorsHeader
+      (utilsForToken s) s "std::string"
     (structs, reflections) = unzipStructWithReflection (litTokens ++ userTokens)
 
 -- | Generates implementations for all tokens.
 implTokens ::
-     [CF.Literal]  -- ^ The built-in tokens.
+     AstLocationUtils
+  -> [CF.Literal]  -- ^ The built-in tokens.
   -> [CF.Pragma]   -- ^ Contains user-defined tokens.
   -> Doc
-implTokens lits pragmas = vcatSpaced $ litTokens ++ userTokens
+implTokens utils lits pragmas = vcatSpaced $ litTokens ++ userTokens
   where
+    isPosToken = astLoc_isPositionalToken utils
+    noLocUtils = newAstLocationUtils CppLocationsNone isPosToken
+    -- | Turn off locations for non-positional tokens.
+    utilsForToken tkName
+      | isPosToken tkName = utils
+      | otherwise         = noLocUtils
     litTokens = map makeLitToken lits
     userTokens =
       [makeUserToken $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
+    makeStringlikeToken s =
+      tokenStructWithRefConstructorsImpl noLocUtils s "std::string"
     makeLitToken s
       | s == "Char"    = tokenStructImpl s "int32_t"
-      | s == "String"  = tokenStructWithRefConstructorsImpl s "std::string"
+      | s == "String"  = makeStringlikeToken s
       | s == "Integer" = tokenStructImpl s "long"
       | s == "Double"  = tokenStructImpl s "double"
-      | otherwise {- "Ident" -} = makeUserToken s
-    makeUserToken s = tokenStructWithRefConstructorsImpl s "std::string"
+      | otherwise {- "Ident" -} = makeStringlikeToken s
+    makeUserToken s =
+      tokenStructWithRefConstructorsImpl (utilsForToken s) s "std::string"
 
 ------------------------------------------------------------------------
 -- * Categories (nonterminals) and rules.
@@ -908,13 +1092,6 @@ ruleDef r = let
 
     headerRefls = text
       $ "REFL(" ++ name ++ ", LabelClass, " ++ show (CF.precRule r) ++ ");"
-
-    -- | Formats field initializers.
-    ctorInitializers :: [String] -> Doc
-    ctorInitializers = nest 4 . \case
-      []           -> empty
-      first : rest -> foldr ($+$) empty
-        $ text (": " ++ first) : map (text . (", " ++)) rest
 
     cloneValue storageCat value
       | isPointerType' storageCat =

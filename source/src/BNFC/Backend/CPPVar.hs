@@ -94,13 +94,14 @@ makeCppVar opts (CFG
     entrypts           = CPPUtil.extractEntrypoints
       (defaultBisonEntrypoints opts) cfPragmas groupedRules cfRules
     cfTerminals        = cfSymbols ++ cfKeywords
+    isPosToken         = CPPUtil.isPositionalToken cfPragmas
     AbsynGen.GeneratedAbsyn
       { absynCode = CPPUtil.CPPHeaderSourcePair
         { cppHeaderText = absynHpp
         , cppSourceText = absynCpp
         }
       , absynListItemStorage = listItemStorage
-      } = AbsynGen.makeAbsyn opts cfLiterals cfPragmas
+      } = AbsynGen.makeAbsyn opts cfLiterals cfPragmas isPosToken
         entrypts mergedGroupedRules
     FlexGen.CompiledLexer
       { compiledLexer_flexGrammar        = flexFile
