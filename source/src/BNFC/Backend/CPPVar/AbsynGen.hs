@@ -137,21 +137,21 @@ data AstUtils = AstUtils
     -- | Adds the correct parameter to the start of a function parameter list
     -- (if needed).
   , astLoc_maybePrependParam ::
-         String    -- ^ What name to give to the parameter.
-      -> [String]  -- ^ Parameter list.
+         String    -- What name to give to the parameter.
+      -> [String]  -- Parameter list.
       -> [String]
 
     -- | The correct comma-terminated parameter to prepend to a nonempty
     -- parameter list, or an empty string.
   , astLoc_maybeParam ::
-         String  -- ^ What name to give to the parameter.
+         String  -- What name to give to the parameter.
       -> String
 
     -- | If needed, prepends a simple copy-initialization of the @loc@ field
     -- using the @loc@ parameter.
   , astLoc_maybePrependFieldInit ::
-         String    -- ^ Initialize with this expression.
-      -> [String]  -- ^ Existing list of initializations.
+         String    -- Initialize with this expression.
+      -> [String]  -- Existing list of initializations.
       -> [String]
 
     -- | A simple copy-assignment of the @loc@ field or 'empty'.
@@ -167,7 +167,7 @@ data AstUtils = AstUtils
 
     -- | Checks if a user-defined token tracks its position.
   , astLoc_isPositionalToken ::
-         String  -- ^ Token name.
+         String  -- Token name.
       -> Bool
 
     -- | Namespace functions.

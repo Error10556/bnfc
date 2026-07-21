@@ -1,9 +1,9 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-|
-  Module      : BNFC.Backend.CPPVar.AbsynGen
-  Description : Abstract syntax node classes generator.
+  Module      : BNFC.Backend.CPPVar.ReadmeGen
+  Description : README generator.
 
-  Abstract syntax node classes generator.
+  README generator.
 -}
 
 module BNFC.Backend.CPPVar.ReadmeGen

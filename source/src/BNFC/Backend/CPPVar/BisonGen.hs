@@ -119,7 +119,7 @@ data BisonUtils = BisonUtils
   , bison_isPosToken :: String -> Bool
     -- | If needed, prepends the correct current location to the argument list.
   , bisonLoc_maybePrependConstructorArg ::
-         [String]  -- ^ The right-hand side arguments.
+         [String]  -- The right-hand side arguments.
       -> [String]
     -- | Empty OR reassignment of the current location (used for lists).
     -- If not empty, the string starts with no spaces and ends in a "; ".
@@ -127,12 +127,12 @@ data BisonUtils = BisonUtils
     -- | Makes an rvalue from a right-hand-side category. Takes positional
     -- tokens into account.
   , bisonLoc_makeConstructorArg ::
-         CF.Cat  -- ^ The object to move from.
-      -> Int     -- ^ The object right-hand-side index ("$n").
+         CF.Cat  -- The object to move from.
+      -> Int     -- The object right-hand-side index ("$n").
       -> String
   , bisonLoc_tokenConstructorArgs ::
-         String  -- ^ The token name.
-      -> Int     -- ^ The object right-hand-side index ("$n").
+         String  -- The token name.
+      -> Int     -- The object right-hand-side index ("$n").
       -> [String]
   }
 
