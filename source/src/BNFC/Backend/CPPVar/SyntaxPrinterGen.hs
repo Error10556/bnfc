@@ -48,13 +48,15 @@ syntaxPrinterCppFilename = "SyntaxPrinter.cpp"
 -- | Generates the @SyntaxPrinter@ class (declaration and implementation).
 makeSyntaxPrinter ::
      Options.SharedOptions  -- ^ BNFC invokation options.
+  -> (String -> Bool)       -- ^ Checks if a token tracks its location.
   -> [PrintableSymbol]      -- ^ The list of types to make methods for.
   -> ListItemStorage        -- ^ How to access list items.
   -> CPPHeaderSourcePair
-makeSyntaxPrinter opts printable listItemStorage = CPPHeaderSourcePair
-  { cppHeaderText = hpp
-  , cppSourceText = cpp
-  }
+makeSyntaxPrinter opts isPosToken printable listItemStorage =
+  CPPHeaderSourcePair
+    { cppHeaderText = hpp
+    , cppSourceText = cpp
+    }
   where
     packwrap = nsutils_wrap $ newNamespaceUtilsFromOptions opts
 
@@ -81,14 +83,20 @@ public:
 
     cpp = text "#include \"SyntaxPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""
-      $++$ packwrap (printerImpl listItemStorage printable)
+      $++$ packwrap
+        (printerImpl
+          (getLocationKind opts /= CppLocationsNone)
+          isPosToken listItemStorage printable)
 
 -- | Generates the implementation.
 printerImpl ::
-     ListItemStorage    -- ^ How to access list elements.
+     Bool               -- ^ Print locations?
+  -> (String -> Bool)   -- ^ Checks if a token tracks its location.
+  -> ListItemStorage    -- ^ How to access list elements.
   -> [PrintableSymbol]  -- ^ All symbols to generate methods for.
   -> Doc
-printerImpl listItemStorage symbols = unlinesToText [s|
+printerImpl printLocations isPosToken listItemStorage symbols =
+  unlinesToText [s|
 SyntaxPrinter::SyntaxPrinter(const SyntaxPrinter* parent,
                              bool currentIndentIsBranch)
     : out(parent->out),
@@ -112,6 +120,18 @@ void SyntaxPrinter::PrintIndentAsIs() const {
 |] $++$ vcatSpaced (map makeMethod symbols)
   $++$ makePrinterShlImplementations "SyntaxPrinter" symbols
   where
+    maybePrintLoc isLast
+      | printLocations = linesToText
+        [ "PrintIndentAsIs();"
+        , concat
+          [ "out << \""
+          , if isLast
+            then " "
+            else "|"
+          , " @ \" << v.loc << '\\n';"
+          ]
+        ]
+      | otherwise = empty
     maybeDereference = case listItemStorage of
       StoreByValue   -> ""
       StoreByPointer -> "*"
@@ -126,7 +146,15 @@ void SyntaxPrinter::PrintIndentAsIs() const {
         [ "PrintIndentForHeader();"
         , "size_t n = v.size();"
         , "out << \"" ++ name ++ " [\" << n << \"]\\n\";"
-        , "if (!n) return;"
+        ] $+$ (if printLocations
+          then unlinesToText [s|
+PrintIndentAsIs();
+out << (n ? "| " : "  ");
+out << "@ " << v.loc << '\n';
+|]
+          else empty
+        ) $+$ linesToText
+        [ "if (!n) return;"
         , "if (n > 1) {"
         , "    SyntaxPrinter nonlast(this, true);"
         , "    size_t n1 = n - 1;"
@@ -135,7 +163,10 @@ void SyntaxPrinter::PrintIndentAsIs() const {
         , "}"
         , "SyntaxPrinter(this, false)(" ++ maybeDereference ++ "v.back());"
         ]
-      PrintableCustomToken name -> stringlikePrint name
+      PrintableCustomToken name -> stringlikePrint name $+$
+          if isPosToken name
+          then maybePrintLoc True
+          else empty
       PrintableIdent            -> unlinesToText [s|
 PrintIndentForHeader();
 out << "Ident {" << v.Value << "}\n";
@@ -161,26 +192,28 @@ out << '\n';
         [ "PrintIndentForHeader();"
         , "out << \"" ++ CF.funName r ++ "\\n\";"
         ] $+$ case myUnsnoc (fieldNames $ CF.rhsRule r) of
-          Nothing                              -> empty
-          Just (nonlasts, (lastName, lastCat)) -> (case nonlasts of
-            [] -> empty
-            _ -> text "SyntaxPrinter nonlast(this, true);"
-              $+$ linesToText
-              [concat
-                [ "nonlast("
-                , if isPointerType cat then "*" else ""
+          Nothing                              -> maybePrintLoc True
+          Just (nonlasts, (lastName, lastCat)) ->
+            maybePrintLoc False
+            $+$ (case nonlasts of
+              [] -> empty
+              _ -> text "SyntaxPrinter nonlast(this, true);"
+                $+$ linesToText
+                [concat
+                  [ "nonlast("
+                  , if isPointerType cat then "*" else ""
+                  , "v."
+                  , name
+                  , ");"
+                  ]
+                | (name, cat) <- nonlasts])
+              $+$ text (concat
+                [ "SyntaxPrinter(this, false)("
+                , if isPointerType lastCat then "*" else ""
                 , "v."
-                , name
+                , lastName
                 , ");"
-                ]
-              | (name, cat) <- nonlasts])
-            $+$ text (concat
-              [ "SyntaxPrinter(this, false)("
-              , if isPointerType lastCat then "*" else ""
-              , "v."
-              , lastName
-              , ");"
-              ])
+                ])
         where
           isPointerType = \case
             CF.Cat      _   -> True

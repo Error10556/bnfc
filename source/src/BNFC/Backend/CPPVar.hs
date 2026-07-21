@@ -115,7 +115,8 @@ makeCppVar opts cf@CFG
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = syntaxHpp
       , cppSourceText = syntaxCpp
-      } = SyntaxPrinterGen.makeSyntaxPrinter opts printables listItemStorage
+      } = SyntaxPrinterGen.makeSyntaxPrinter
+        opts isPosToken printables listItemStorage
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = prettyHpp
       , cppSourceText = prettyCpp
