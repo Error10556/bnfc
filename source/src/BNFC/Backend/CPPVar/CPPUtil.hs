@@ -13,6 +13,7 @@ module BNFC.Backend.CPPVar.CPPUtil
   , cppShowString
   , NamespaceUtils(..)
   , newNamespaceUtils
+  , newNamespaceUtilsFromOptions
 
     -- * Additional functions on 'Text.PrettyPrint.Doc'
   , ($++$)
@@ -161,6 +162,11 @@ newNamespaceUtils maybePackage = NamespaceUtils
         let (wordTail, others) = span cppIsAlnum tail
         in (cur : wordTail) : getWords others
       | otherwise = getWords tail
+
+-- | Creates a set of namespace functions appropriate for the
+-- 'BNFC.Options.inPackage' option value.
+newNamespaceUtilsFromOptions :: Options.SharedOptions -> NamespaceUtils
+newNamespaceUtilsFromOptions = newNamespaceUtils . Options.inPackage
 
 ------------------------------------------------------------------------
 -- * Additional functions on 'Text.PrettyPrint.Doc'.

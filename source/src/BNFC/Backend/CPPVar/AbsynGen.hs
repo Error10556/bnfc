@@ -192,7 +192,7 @@ newAstUtils opts isPositionalToken = case locKind of
   CppLocationsRange -> finalize "location" initial
   where
     locKind = getLocationKind opts
-    nsutils = newNamespaceUtils $ Options.inPackage opts
+    nsutils = newNamespaceUtilsFromOptions opts
     initial = AstUtils
       { astLoc_locKind               = locKind
       , astLoc_isPositionalToken     = isPositionalToken
