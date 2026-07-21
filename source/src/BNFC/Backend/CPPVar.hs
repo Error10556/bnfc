@@ -31,6 +31,7 @@ import qualified BNFC.Backend.CPPVar.HaskellPrinterGen as HaskellPrinterGen
 import qualified BNFC.Backend.CPPVar.TestGen as TestGen
 import qualified BNFC.Backend.CPPVar.PrinterCommonGen as PrinterCommonGen
 import qualified BNFC.Backend.CPPVar.MakefileGen as MakefileGen
+import qualified BNFC.Backend.CPPVar.ReadmeGen as ReadmeGen
 
 {-| Generates the following files (@language@ is the basename of the LBNF
 grammar description file, as given by 'BNFC.Options.lang'):
@@ -75,6 +76,8 @@ grammar description file, as given by 'BNFC.Options.lang'):
 | @Makefile@                 | recipes reference __(if @-m@ given)__     |
 +----------------------------+-------------------------------------------+
 | @Test.cpp@                 | an example parser, used for testing       |
++----------------------------+-------------------------------------------+
+| @README.md@                | a short tutorial                          |
 +----------------------------+-------------------------------------------+
 -}
 
@@ -158,7 +161,12 @@ makeCppVar opts cf@CFG
     Nothing           -> return ()
     Just makefileName -> mkfile makefileName ("# " ++)
       $ MakefileGen.makeMakefile opts
+  mkfile ReadmeGen.readmeFilename mdcomment (ReadmeGen.makeReadme)
 
 -- | C++ comment wrapper.
 comment :: String -> String
 comment = ("/* " ++) . (++ " */")
+
+-- | Markdown comment wrapper.
+mdcomment :: String -> String
+mdcomment = ("<!-- " ++ ) . ( ++ " -->")

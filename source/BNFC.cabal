@@ -263,6 +263,7 @@ library
     BNFC.Backend.CPPVar.TestGen
     BNFC.Backend.CPPVar.MakefileGen
     BNFC.Backend.CPPVar.CPPUtil
+    BNFC.Backend.CPPVar.ReadmeGen
 
     -- Java backend
     BNFC.Backend.Java

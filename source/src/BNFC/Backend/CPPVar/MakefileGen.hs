@@ -117,6 +117,7 @@ BISONFLAGS =
   , "\tPatternMatching.hpp \\"
   , "\tPrinterCommon.cpp \\"
   , "\tPrinterCommon.hpp \\"
+  , "\tREADME.md \\"
   , "\tSyntaxPrinter.cpp \\"
   , "\tSyntaxPrinter.hpp \\"
   , "\tTest.cpp \\"
