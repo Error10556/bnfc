@@ -529,7 +529,7 @@ cppIsAlpha_ ch = isAsciiLower ch || isAsciiUpper ch || ch == '_'
 -- | Checks if a character is valid in identifiers at a position after the first
 -- chacacter.
 cppIsAlnum :: Char -> Bool
-cppIsAlnum ch  = isAlpha_ ch || isDigit ch
+cppIsAlnum ch  = cppIsAlpha_ ch || isDigit ch
 
 -- | Transforms a string into a valid C identifier.
 --
@@ -540,11 +540,11 @@ normalizeCPPName =
   (\case
     []       -> "_"
     s@(ch:_) ->
-      if isAlpha_ ch
+      if cppIsAlpha_ ch
       then s
       else '_' : s
   ) . map (\ ch ->
-    if isAlnum ch
+    if cppIsAlnum ch
     then ch
     else '_')
   where
