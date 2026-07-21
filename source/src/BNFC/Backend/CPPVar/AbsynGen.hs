@@ -150,7 +150,8 @@ data AstUtils = AstUtils
     -- | If needed, prepends a simple copy-initialization of the @loc@ field
     -- using the @loc@ parameter.
   , astLoc_maybePrependFieldInit ::
-         [String]  -- ^ Existing list of initializations.
+         String    -- ^ Initialize with this expression.
+      -> [String]  -- ^ Existing list of initializations.
       -> [String]
 
     -- | A simple copy-assignment of the @loc@ field or 'empty'.
@@ -182,7 +183,7 @@ newAstUtils opts isPositionalToken = case locKind of
   CppLocationsNone -> initial
     { astLoc_maybePrependParam     = const id
     , astLoc_maybeParam            = const ""
-    , astLoc_maybePrependFieldInit = id
+    , astLoc_maybePrependFieldInit = const id
     , astLoc_maybeFieldAsg         = empty
     , astLoc_storageClass          = error "Storage of locations undefined"
     , astLoc_fieldDecl             = empty
@@ -208,7 +209,7 @@ newAstUtils opts isPositionalToken = case locKind of
       { astLoc_maybePrependParam     = maybePrependParam
       , astLoc_maybeParam            =
         intercalate ", " . flip maybePrependParam [""]
-      , astLoc_maybePrependFieldInit = ("loc(loc)" : )
+      , astLoc_maybePrependFieldInit = \ s -> (("loc(" ++ s ++ ")") : )
       , astLoc_maybeFieldAsg         = text "loc = other.loc;"
       , astLoc_storageClass          = storage
       , astLoc_fieldDecl             = text $ storage ++ " loc;"
@@ -785,7 +786,7 @@ tokenStructWithRefConstructorsImpl locUtils name storageType =
       | hasLoc    = maybeParam "loc"
       | otherwise = ""
     maybeLocInit'
-      | hasLoc    = maybeLocInit
+      | hasLoc    = maybeLocInit "loc"
       | otherwise = id
     constructor valueparam valueinit =
       (text (name ++ "::" ++ name ++ "(" ++ maybeParam' ++ valueparam ++ ")")
@@ -877,7 +878,7 @@ implTokens utils lits pragmas = vcatSpaced $ litTokens ++ userTokens
   where
     litTokens = map makeLitToken lits
     userTokens =
-      [makeUserToken utils $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
+      [makeUserToken $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
     makeStringlikeToken s =
       tokenStructWithRefConstructorsImpl utils s "std::string"
     makeLitToken s
@@ -888,7 +889,7 @@ implTokens utils lits pragmas = vcatSpaced $ litTokens ++ userTokens
       | s == "Ident"   = makeStringlikeToken s
       | otherwise      = error $ "Unimplemented literal: " ++ s
     makeUserToken s =
-      tokenStructWithRefConstructorsImpl s "std::string"
+      tokenStructWithRefConstructorsImpl utils s "std::string"
 
 ------------------------------------------------------------------------
 -- * Categories (nonterminals) and rules.
@@ -1189,7 +1190,7 @@ ruleDef AstUtils
     copyCtor =
       (text
       (name ++ "::" ++ name ++ "(const " ++ name ++ "& other [[maybe_unused]])")
-      $+$ ctorInitializers (maybePrependLocInit
+      $+$ ctorInitializers (maybePrependLocInit "other.loc"
         [ name ++ "(" ++ cloneValue cat ("other." ++ name) ++ ")"
         | (name, cat) <- zip indexedNames members]))
       <> text " {}"
@@ -1205,7 +1206,7 @@ ruleDef AstUtils
         params = maybePrependLocParam "loc"
           [ cat2typeName cat ++ "&& _" ++ show i
           | (cat, i :: Int) <- zip members [1..]]
-        initializers = maybePrependLocInit
+        initializers = maybePrependLocInit "loc"
           [ name ++ "(" ++ moveValue cat ('_' : show i) ++ ")"
           | (name, cat, i :: Int) <- zip3 indexedNames members [1..]]
       in
