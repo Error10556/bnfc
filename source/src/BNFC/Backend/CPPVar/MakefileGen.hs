@@ -269,7 +269,7 @@ rules langname needBnfcTarget = linesToText
   , "MOSTLYCLEAN_FILES := $(OBJECTS) $(ARCHIVES) Test" ++ langname
   , "BAKFILES := $(foreach f,$(BNFC_GENERATED),$(f).bak)"
   , "CLEAN_FILES := " ++ langname ++ ".lex.cpp " ++ langname ++ ".tab.cpp "
-    ++ "Parser.hpp $(BAKFILES)"
+    ++ "Parser.hpp " ++ langname ++ ".loc.hpp $(BAKFILES)"
   , ""
   , "mostlyclean:"
   , "\t$(foreach f,$(wildcard $(MOSTLYCLEAN_FILES)),rm $(f);$(NEWLINE))"
@@ -290,7 +290,8 @@ rules langname needBnfcTarget = linesToText
   , "bison:"
   , "\t$(INVOKE_BISON)"
   , ""
-  , "Parser.hpp " ++ langname ++ ".tab.cpp &: " ++ langname ++ ".ypp"
+  , "Parser.hpp " ++ langname ++ ".tab.cpp " ++ langname ++ ".loc.hpp &: "
+    ++ langname ++ ".ypp"
   , "\t$(INVOKE_BISON)"
   , ""
   , "CXX_COMPILE = $(CXX) $(CXXFLAGS) -c -o $@ $<"
