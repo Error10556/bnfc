@@ -80,14 +80,13 @@ makeCppVar ::
      SharedOptions  -- ^ BNFC invokation options.
   -> CF             -- ^ The grammar description.
   -> MkFiles ()
-makeCppVar opts (CFG
+makeCppVar opts cf@CFG
   { cfgPragmas        = cfPragmas
   , cfgLiterals       = cfLiterals
   , cfgSymbols        = cfSymbols
   , cfgKeywords       = cfKeywords
   , cfgRules          = cfRules
-  , cfgReversibleCats = cfReversibleCats
-  }) = do
+  } = do
   let
     groupedRules       = CPPUtil.groupRules cfRules
     mergedGroupedRules = CPPUtil.mergeCoercCats groupedRules
@@ -107,8 +106,8 @@ makeCppVar opts (CFG
       { compiledLexer_flexGrammar        = flexFile
       , compiledLexer_implicitTokenNames = implicitTokenNames
       } = FlexGen.makeFlex opts cfLiterals cfTerminals cfPragmas
-    bisonFile = BisonGen.makeBison opts implicitTokenNames cfLiterals
-      cfPragmas groupedRules listItemStorage cfReversibleCats entrypts
+    bisonFile = BisonGen.makeBison opts implicitTokenNames isPosToken cf
+      groupedRules listItemStorage entrypts
     printables = PrinterUtils.getPrintableSymbols
       cfLiterals cfPragmas mergedGroupedRules
     CPPUtil.CPPHeaderSourcePair

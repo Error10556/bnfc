@@ -28,6 +28,7 @@ import Text.PrettyPrint
 -- BNFC imports
 import qualified BNFC.Options as Options
 import qualified BNFC.CF as CF
+import BNFC.CF (CF)
 
 import BNFC.Backend.CPPVar.CPPUtil
 import qualified BNFC.Backend.CPPVar.FlexGen as FlexGen
@@ -44,19 +45,22 @@ makeBison ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
-  -> [CF.Literal]  -- ^ All used built-in tokens.
-  -> [CF.Pragma]   -- ^ Grammar pragmas (contain user-defined tokens).
+  -> (String -> Bool)  -- ^ Checks if a token tracks its location.
+  -> CF  -- ^ Grammar description.
   -> GroupedRules
     -- ^ Rules grouped by the category with precedence level.
   -> AbsynGen.ListItemStorage
     -- ^ How to access list elements.
-  -> [CF.Cat]      -- ^ The list of all reversible list categories.
-  -> [CF.Cat]      -- ^ Entrypoints.
+  -> [CF.Cat]  -- ^ Entrypoints.
   -> Doc
-makeBison opts implicitTokenNames literals pragmas
+makeBison opts implicitTokenNames isPosToken CF.CFG
+    { cfgLiterals = literals
+    , cfgPragmas = pragmas
+    , cfgReversibleCats = reversibleCatList
+    }
     groupedRules@(GroupedRules rulemap) storeListItemsBy
-    reversibleCatList entrypoints =
-  bisonHeader opts
+    entrypoints =
+  bisonHeader utils (Options.lang opts)
   $++$ tokenDefs implicitTokenNames literals pragmas
   $++$ codeRequires utils entrypoints
   $++$ nonterms groupedRules
@@ -64,14 +68,14 @@ makeBison opts implicitTokenNames literals pragmas
   $++$ codeLex utils
   $++$ text "%start __start__"
   $++$ text "%%"
-  $++$ startRules entrypoints
+  $++$ startRules utils entrypoints
   $++$ vcatSpaced (map
-      (uncurry $ category implicitTokenNames storeListItemsBy reversible)
+      (uncurry $ category utils implicitTokenNames storeListItemsBy reversible)
       $ Map.toList rulemap)
   $++$ text "%%"
-  $++$ codeSection utils opts
+  $++$ codeSection utils
   where
-    utils = newBisonUtils opts
+    utils = newBisonUtils opts isPosToken
     reversible = Set.fromList reversibleCatList
 
 ------------------------------------------------------------------------
@@ -80,34 +84,90 @@ makeBison opts implicitTokenNames literals pragmas
 
 -- | A collection of commonly used functions that all depend on the options.
 data BisonUtils = BisonUtils
-  { inPackage            :: !Bool
-    -- ^ Has the package name been specified?
-  , namespaceWrap        :: !(Doc -> Doc)
-    -- ^ Wraps a document in a @namespace@ with the package name, but only if
-    -- one has been specified.
-  , namespaceNameOrEmpty :: !String
-    -- ^ The specified package name, if any.
-  , namespacePrefix      :: !String
-    -- ^ If a package name has been given, equals "package_name::".
-    -- Otherwise, the empty string.
+  {
+    -- | Has the package name been specified?
+    bison_inPackage  :: Bool
+    -- | Namespace handling.
+  , bison_nsutils    :: NamespaceUtils
+    -- | Tells if a token tracks its location.
+  , bison_isPosToken :: String -> Bool
+    -- | If needed, prepends the correct current location to the argument list.
+  , bisonLoc_maybePrependConstructorArg ::
+         [String]  -- ^ The right-hand side arguments.
+      -> [String]
+    -- | Empty OR reassignment of the current location (used for lists).
+    -- If not empty, the string starts with no spaces and ends in a "; ".
+  , bisonLoc_maybeSet :: String
+    -- | Makes an rvalue from a right-hand-side category. Takes positional
+    -- tokens into account.
+  , bisonLoc_makeConstructorArg ::
+         CF.Cat  -- ^ The object to move from.
+      -> Int     -- ^ The object right-hand-side index ("$n").
+      -> String
+  , bisonLoc_tokenConstructorArgs ::
+         String  -- ^ The token name.
+      -> Int     -- ^ The object right-hand-side index ("$n").
+      -> [String]
   }
 
 -- | Constructs a t'BisonUtils' record respecting the
 -- 'BNFC.Options.inPackage' value.
-newBisonUtils :: Options.SharedOptions -> BisonUtils
-newBisonUtils opts = case Options.inPackage opts of
-  Nothing -> BisonUtils
-    { inPackage            = False
-    , namespaceWrap        = id
-    , namespaceNameOrEmpty = ""
-    , namespacePrefix      = ""
+newBisonUtils ::
+     Options.SharedOptions  -- ^ BNFC invokation options.
+  -> (String -> Bool)       -- ^ Checks if a token is positional.
+  -> BisonUtils
+newBisonUtils opts isPosToken = case locKind of
+  CppLocationsNone -> initial
+    { bisonLoc_maybePrependConstructorArg = id
+    , bisonLoc_maybeSet = ""
+    , bisonLoc_makeConstructorArg = const stdMoveFrom
+    , bisonLoc_tokenConstructorArgs = const (( : []) . stdMoveFrom)
     }
-  Just ns -> BisonUtils
-    { inPackage            = True
-    , namespaceWrap        = wrapNamespace ns
-    , namespaceNameOrEmpty = ns
-    , namespacePrefix      = ns ++ "::"
+  CppLocationsStart -> initial
+    { bisonLoc_maybePrependConstructorArg = ("@$.start" : )
+    , bisonLoc_maybeSet = "$$.loc = @$.start; "
+    , bisonLoc_makeConstructorArg = \case
+        CF.TokenCat name -> \ i -> concat
+          [ name
+          , "("
+          , intercalate ", " $ tokenCtorArgs True name i
+          , ")"
+          ]
+        _ -> stdMoveFrom
+    , bisonLoc_tokenConstructorArgs = tokenCtorArgs True
     }
+  CppLocationsRange -> initial
+    { bisonLoc_maybePrependConstructorArg = ("@$" : )
+    , bisonLoc_maybeSet = "$$.loc = @$; "
+    , bisonLoc_makeConstructorArg = \case
+        CF.TokenCat name -> \ i -> concat
+          [ name
+          , "("
+          , intercalate ", " $ tokenCtorArgs False name i
+          , ")"
+          ]
+        _ -> stdMoveFrom
+    , bisonLoc_tokenConstructorArgs = tokenCtorArgs False
+    }
+  where
+    nsutils = newNamespaceUtilsFromOptions opts
+    initial = BisonUtils
+      { bison_inPackage  = not $ null $ nsutils_name nsutils
+      , bison_isPosToken = isPosToken
+      , bison_nsutils    = nsutils
+      , bisonLoc_makeConstructorArg         = undefined
+      , bisonLoc_maybeSet                   = undefined
+      , bisonLoc_maybePrependConstructorArg = undefined
+      , bisonLoc_tokenConstructorArgs       = undefined
+      }
+    locKind = getLocationKind opts
+    tokenCtorArgs isStart name i =
+      (if isPosToken name
+        then (concat ["@", show i, if isStart then ".start" else ""] : )
+        else id)
+      [stdMoveFrom i]
+    stdMoveFrom :: Int -> String
+    stdMoveFrom i = "std::move($" ++ show i ++ ")"
 
 -- | Information about a literal token
 -- (String, Ident, Integer, Double, or Char).
@@ -152,9 +212,9 @@ lookupLiteralTokenInfo catname =
     Just res -> res
 
 -- | Wraps a 'Doc' in curly braces, indenting it by 4 spaces.
--- Puts an arbitrary string as the heading.
+-- Puts an arbitrary string as the header.
 bisonBraces ::
-     String  -- ^ The heading.
+     String  -- ^ The header.
   -> Doc     -- ^ Block to wrap and indent.
   -> Doc
 bisonBraces s d = text (s ++ " {") $+$ nest 4 d $+$ text "}"
@@ -165,25 +225,30 @@ bisonBraces s d = text (s ++ " {") $+$ nest 4 d $+$ text "}"
 
 -- | Generates directives at the top of the file.
 bisonHeader ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
+     BisonUtils
+  -> String  -- ^ Language name.
   -> Doc
-bisonHeader opts = linesToText
-  [ "%require \"3.2\""
-  , "%language \"c++\""
-  , "%define api.value.type variant"
-  , "%define api.token.constructor"
-  , "%define api.parser.class {Parser}"
-  ]
-  $+$ case Options.inPackage opts of
-    Nothing -> empty
-    Just ns -> text ("%define api.namespace {" ++ ns ++ "}")
-  $+$ linesToText
-  [ "%lex-param {yyscan_t scanner}"
-  , "%parse-param {yyscan_t scanner}"
-  , "%parse-param {std::optional<std::variant<ParseResultVariant, "
-    ++ "syntax_error>>* result}"
-  , "%header \"" ++ Options.lang opts ++ ".tab.hpp\""
-  ]
+bisonHeader utils@BisonUtils { bison_nsutils = nsutils } langname =
+  linesToText
+    [ "%require \"3.2\""
+    , "%language \"c++\""
+    , "%define api.value.type variant"
+    , "%define api.token.constructor"
+    , "%define api.parser.class {Parser}"
+    ]
+  $+$ (
+    if bison_inPackage utils
+    then text ("%define api.namespace {" ++ nsutils_name nsutils ++ "}")
+    else empty
+  ) $+$ linesToText
+    [ "%locations"
+    , "%define api.location.file \"" ++ langname ++ ".loc.hpp\""
+    , "%param {yyscan_t scanner}"
+    , "%param {Parser* thisparser}"
+    , "%parse-param {std::variant<ParseResultVariant, "
+      ++ "syntax_error>* result}"
+    , "%header \"" ++ langname ++ ".tab.hpp\""
+    ]
 
 -- | Generates the token definitions.
 tokenDefs ::
@@ -209,17 +274,22 @@ codeRequires ::
      BisonUtils
   -> [CF.Cat]  -- ^ Grammar entrypoints.
   -> Doc
-codeRequires utils entrypts = bisonBraces "%code requires" $ linesToText
+codeRequires BisonUtils
+    { bison_nsutils = NamespaceUtils
+      { nsutils_wrap   = packwrap
+      , nsutils_prefix = nsprefix
+      }
+    } entrypts =
+  bisonBraces "%code requires" $ linesToText
   [ "#include <string_view>"
-  , "#include <optional>"
   , "#include <variant>"
   , "#include \"Absyn.hpp\""
   ] $++$ text "using yyscan_t = void*;"
-  $++$ namespaceWrap utils
+  $++$ packwrap
     (text ("using ParseResultVariant = std::variant<"
       ++ intercalate ", "
-        [ namespacePrefix utils ++ catNameNoCoerc cat
-        | cat <- removePrecedenceFromCats entrypts
+        [ nsprefix ++ catNameNoCoerc cat
+        | cat <- removePrecedenceFromCats entrypts  -- deduplicates
         ]
       ++ ">;"))
 
@@ -239,17 +309,19 @@ codeProvides ::
      BisonUtils
   -> Doc
 codeProvides utils = bisonBraces "%code provides"
-  $ namespaceWrap utils
-    $ maybeImportParserClass $+$ unlinesToText [s|
+  $ nsutils_wrap (bison_nsutils utils)
+    $ maybeImportClasses $+$ unlinesToText [s|
 using ParseResultOrError =
     std::variant<ParseResultVariant, Parser::syntax_error>;
-ParseResultOrError Parse(FILE* file);
-ParseResultOrError Parse(std::string_view str);
+ParseResultOrError Parse(FILE* file, std::string* optFilename = nullptr);
+ParseResultOrError Parse(std::string_view str,
+                         std::string* optFilename = nullptr);
 std::string_view ParsedNodeName(const ParseResultVariant&);
 
 template <class T>
 std::variant<T, Parser::syntax_error>
-EnsureParsedType(ParseResultOrError&& parsed) {
+EnsureParsedType(ParseResultOrError&& parsed,
+                 std::string* optFilename = nullptr) {
     if (auto* err = std::get_if<Parser::syntax_error>(&parsed))
         return std::move(*err);
     auto& var = std::get<ParseResultVariant>(parsed);
@@ -260,45 +332,44 @@ EnsureParsedType(ParseResultOrError&& parsed) {
         .append(reflection::SyntaxNodeName<T>)
         .append(", but got ")
         .append(ParsedNodeName(var));
-    return Parser::syntax_error(msg);
+    return Parser::syntax_error(
+      location(position{optFilename, 1, 1}, position{optFilename, 1, 1}),
+      msg);
 }
 
 template <class T>
-std::variant<T, Parser::syntax_error> ParseAs(FILE* file) {
+std::variant<T, Parser::syntax_error> ParseAs(FILE* file,
+        std::string* optFilename = nullptr) {
     static_assert(reflection::IsParserEntrypoint<T>,
         "Cannot parse this class");
-    return EnsureParsedType<T>(Parse(file));
+    return EnsureParsedType<T>(Parse(file, optFilename), optFilename);
 }
 template <class T>
-std::variant<T, Parser::syntax_error> ParseAs(std::string_view str) {
+std::variant<T, Parser::syntax_error> ParseAs(std::string_view str,
+        std::string* optFilename = nullptr) {
     static_assert(reflection::IsParserEntrypoint<T>,
         "Cannot parse this class");
-    return EnsureParsedType<T>(Parse(str));
+    return EnsureParsedType<T>(Parse(str, optFilename), optFilename);
 }
 |]
   where
-    -- | Bison generates the parser class in the `yy` namespace when no custom
-    -- package name is provided. If we want the BNFC-generated parser to be
-    -- contained in the global namespace, we have to import it explicitly.
-    maybeImportParserClass
-      | inPackage utils = empty
-      | otherwise       = text "using yy::Parser;"
+    -- | Bison generates the parser class and location structs in the
+    -- `yy` namespace when no custom package name is provided. If we want the
+    -- BNFC-generated parser to be contained in the global namespace, we have
+    -- to import the classes explicitly.
+    maybeImportClasses
+      | bison_inPackage utils = empty
+      | otherwise             = linesToText
+        [ "using yy::Parser;"
+        , "using yy::location;"
+        , "using yy::position;"
+        ]
 
 -- | Generates a bit of code that makes the lexer available.
 codeLex :: BisonUtils -> Doc
 codeLex utils = bisonBraces "%code"
-  $ text (concat
-    ["extern "
-    , namespacePrefix utils
-    , "Parser::symbol_type "
-    , namespaceNameOrEmpty utils
-    , "lex(yyscan_t scanner);"
-    ])
-  $++$ namespaceWrap utils (linesToText
-    [ "static inline Parser::symbol_type yylex(yyscan_t scanner) {"
-    , "    return " ++ namespaceNameOrEmpty utils ++ "lex(scanner);"
-    , "}"
-    ])
+  $ nsutils_wrap (bison_nsutils utils)
+  $ text "extern Parser::symbol_type yylex(yyscan_t scanner, Parser* parser);"
 
 ------------------------------------------------------------------------
 -- * Utility for the Bison rule section.
@@ -329,38 +400,61 @@ sentFormCatToBisonName = \case
 
 -- | Generates the entrypoint alternatives as grammar rules.
 startRules ::
-     [CF.Cat]            -- ^ Grammar entrypoints.
+     BisonUtils
+  -> [CF.Cat]  -- ^ Grammar entrypoints.
   -> Doc
-startRules entrypoints = text "__start__" $+$ bisonRules (map rule entrypoints)
+startRules utils entrypoints =
+  text "__start__" $+$ bisonRules (map rule entrypoints)
   where
-    rule cat = sentFormCatToBisonName cat
-      ++ " YYEOF { *result = {{ParseResultVariant(std::move($1))}}; }"
+    rule cat =
+      let classname = catNameNoCoerc cat
+      in concat
+        [ sentFormCatToBisonName cat
+        , " YYEOF { result->emplace<ParseResultVariant>("
+        , "std::in_place_type_t<"
+        , classname
+        , ">()"
+        , concat
+          [ ',' : ' ' : arg
+          | arg <- bisonLoc_tokenConstructorArgs utils classname 1
+          ]
+        , "); }"
+        ]
 
 -- | Generates all Bison rules for a category.
 category ::
-     FlexGen.NamedImplicitTokens
+     BisonUtils
+  -> FlexGen.NamedImplicitTokens
     -- ^ What the terminals specified as literal strings are named.
   -> AbsynGen.ListItemStorage
   -> Set CF.Cat           -- ^ The set of reversible categories.
   -> NontokenCategory  -- ^ The nonterminal.
   -> [CF.Rule]         -- ^ The rules that produce the nonterminal.
   -> Doc
-category (FlexGen.NamedImplicitTokens implicitTokenNames)
+category utils@BisonUtils
+    { bisonLoc_maybePrependConstructorArg = prependLocArg
+    , bisonLoc_makeConstructorArg = makeArg
+    } (FlexGen.NamedImplicitTokens implicitTokenNames)
     storeListItemsBy reversibleCats cat rules =
   case cat of
     Nontoken_ListCat lElem -> makeCategoryFromRules
       [makeRule r | r <- rules, CF.internal r == CF.Parsable]
       where
+        BisonUtils
+          { bisonLoc_maybeSet = maybeUpdateLoc
+          } = utils
         lElemClass = catNameNoCoerc lElem
         myMaybeMakeUnique = maybeMakeUnique lElemClass
+        revConsRule' = revConsRule maybeUpdateLoc
+        consRule' = consRule maybeUpdateLoc
         makeRule r =
           let rhs = CF.rhsRule $ CF.removeWhiteSpaceSeparators r
           in case CF.funName r of
             "_"     -> coercionRule rhs
             "(:)"   ->
               if CF.ListCat lElem `Set.member` reversibleCats
-              then revConsRule lElemClass rhs
-              else consRule lElemClass rhs
+              then revConsRule' lElemClass rhs
+              else consRule' lElemClass rhs
             "(:[])" -> concat
               [ "/* (:[]) */ "
               , sentFormToBison rhs
@@ -374,7 +468,13 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
               ]
               where
                 [dollarItem] = rhsObjectIndices rhs
-            "[]"    -> "/* [] */ " ++ sentFormToBison rhs ++ " { }"
+            "[]"    -> concat
+              [ "/* [] */ "
+              , sentFormToBison rhs
+              , " { "
+              , maybeUpdateLoc
+              , "}"
+              ]
             name    -> error ("Invalid name for a list category: " ++ name)
 
     -- non-list
@@ -403,8 +503,8 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
           _   -> error "Coercion object count /= 1"
         , "); }"
         ]
-    consRule :: String -> CF.SentForm -> String
-    consRule lElemClass rhs =
+    consRule :: String -> String -> CF.SentForm -> String
+    consRule maybeLocUpdate lElemClass rhs =
       let [dollarItem, dollarList] = rhsObjectIndices rhs
       in concat
         [ "/* (:) */ "
@@ -417,19 +517,23 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
           , show dollarItem
           , ")"
           ]
-        , "); }"
+        , "); "
+        , maybeLocUpdate
+        , "}"
         ]
     -- | If rhs == [Left item, Right terminator..., Left lst],
     -- then rhs := [Left lst, Left item, Right terminator...]
-    revConsRule :: String -> CF.SentForm -> String
-    revConsRule lElemClass rhs =
+    revConsRule :: String -> String -> CF.SentForm -> String
+    revConsRule maybeLocUpdate lElemClass rhs =
       let (last, notlast) = myForceUnsnoc rhs
       in concat
         [ "/* flip (:) */ "
         , sentFormToBison $ last : notlast
         , " { $$ = std::move($1); $$.push_back("
         , maybeMakeUnique lElemClass "std::move($2)"
-        , "); }"
+        , "); "
+        , maybeLocUpdate
+        , "}"
         ]
     maybeMakeUnique elemClass = case storeListItemsBy of
       AbsynGen.StoreByValue   -> id
@@ -473,11 +577,15 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
         unempty = \case
           []       -> ["/* empty */"]
           nonempty -> nonempty
+    rhsObjectIndicesWithCats :: CF.SentForm -> [(Int, CF.Cat)]
+    rhsObjectIndicesWithCats rhs = [(i, cat) | (Left cat, i) <- zip rhs [1..]]
     rhsObjectIndices :: CF.SentForm -> [Int]
-    rhsObjectIndices rhs = [i | (Left _, i) <- zip rhs [1..]]
+    rhsObjectIndices = map fst . rhsObjectIndicesWithCats
     makeArgs :: CF.SentForm -> String
-    makeArgs rhs = intercalate ", "
-      [ "std::move($" ++ show i ++ ")" | i <- rhsObjectIndices rhs]
+    makeArgs rhs = intercalate ", " $ prependLocArg
+      [ makeArg cat i
+      | (i, cat) <- rhsObjectIndicesWithCats rhs
+      ]
 
 ------------------------------------------------------------------------
 -- * Implementations.
@@ -486,39 +594,39 @@ category (FlexGen.NamedImplicitTokens implicitTokenNames)
 -- | Generates the implementations for the parsing methods.
 codeSection ::
      BisonUtils
-  -> Options.SharedOptions  -- ^ BNFC invokation options.
   -> Doc
-codeSection utils opts = namespaceWrap utils $
-  FlexGen.scannerDecl opts
-  $++$ linesToText
-  [ "void Parser::error(const std::string& msg) {"
-  , "    *result = {{syntax_error(msg)}};"
-  , "}"
-  , ""
-  , "static ParseResultOrError Parse(const " ++ scannerName
-    ++ "& scanner) {"
-  , "    std::optional<ParseResultOrError> res;"
-  , "    Parser parser(scanner.FlexScanner(), &res);"
-  , "    parser.parse();"
-  , "    if (!res) return {Parser::syntax_error(\"\")};"
-  , "    return std::move(*res);"
-  , "}"
-  , ""
-  , "ParseResultOrError Parse(FILE* file) {"
-  , "    return Parse(" ++ scannerName ++ "(file));"
-  , "}"
-  , ""
-  , "ParseResultOrError Parse(std::string_view str) {"
-  , "    return Parse(" ++ scannerName ++ "(str));"
-  , "}"
-  , ""
-  , "std::string_view ParsedNodeName(const ParseResultVariant& var) {"
-  , "    return std::visit([](const auto& node) -> std::string_view {"
-  , "        return reflection::SyntaxNodeName<std::decay_t<decltype(node)>>;"
-  , "    }, var);"
-  , "}"
-  ]
-  where
-    scannerName = case Options.inPackage opts of
-      Nothing -> "Scanner"
-      Just ns -> ns ++ "Scanner"
+codeSection BisonUtils
+    { bison_nsutils = NamespaceUtils
+      { nsutils_wrap = packwrap
+      }
+    } = packwrap $
+  FlexGen.scannerDecl
+  $++$ unlinesToText [s|
+void Parser::error(const location& loc, const std::string& msg) {
+      result->emplace<Parser::syntax_error>(loc, msg);
+}
+
+static ParseResultOrError Parse(const FlexScanner& scanner,
+                                std::string* optFilename) {
+    ParseResultOrError res(std::in_place_type_t<Parser::syntax_error>(),
+        location(position(optFilename, 1, 1), position(optFilename, 1, 1)),
+        "Unknown parser error")
+    Parser parser(scanner.FlexScanner(), &parser, &res);
+    parser.parse();
+    return res;
+}
+
+ParseResultOrError Parse(FILE* file, std::string* optFilename) {
+    return Parse(FlexScanner(file, optFilename), optFilename);
+}
+
+ParseResultOrError Parse(std::string_view str, std::string* optFilename) {
+    return Parse(FlexScanner(str, optFilename), optFilename);
+}
+
+std::string_view ParsedNodeName(const ParseResultVariant& var) {
+    return std::visit([](const auto& node) -> std::string_view {
+        return reflection::SyntaxNodeName<std::decay_t<decltype(node)>>;
+    }, var);
+}
+|]
