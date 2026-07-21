@@ -51,7 +51,7 @@ makePrinterCommonHpp opts = linesToText
   [ "#pragma once"
   , "#include <ostream>"
   , "#include <string_view>"
-  ] $++$ wrapPackage opts (unlinesToText [s|
+  ] $++$ (nsutils_wrap $ newNamespaceUtilsFromOptions opts) (unlinesToText [s|
 void PrintEscapedCharRaw(std::ostream& out, int32_t ch);
 
 // As PrintEscapedCharRaw for each character,
@@ -74,7 +74,7 @@ makePrinterCommonCpp opts = linesToText (lines $ [s|
 #include "PrinterCommon.hpp"
 #include <charconv>
 #include <system_error>
-|]) $++$ wrapPackage opts (unlinesToText [s|
+|]) $++$ (nsutils_wrap $ newNamespaceUtilsFromOptions opts) (unlinesToText [s|
 void PrintEscapedCharRaw(std::ostream& out, int32_t ch) {
     switch (ch) {
         case '\0':

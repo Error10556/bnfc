@@ -30,7 +30,6 @@ import Data.Char (ord)
 import Data.Int (Int8)
 import qualified Data.Map as Map
 import Data.Map (Map)
-import Data.Maybe (fromMaybe)
 import Data.String.QQ (s)
 
 import Text.PrettyPrint (Doc, text, ($+$), empty, (<>))
@@ -54,33 +53,37 @@ flexFilename = (++ ".l") . Options.lang
 -- | Generates the FLex grammar file.
 makeFlex ::
      Options.SharedOptions  -- ^ BNFC invokation options.
-  -- -> CF                     -- ^ Grammar description.
   -> [CF.Literal]
   -> [String]
   -> [CF.Pragma]
   -> CompiledLexer
 makeFlex opts literals terminals pragmas = CompiledLexer
-  { compiledLexer_flexGrammar = flexHead opts usedTokens
+  { compiledLexer_flexGrammar =
+    flexHead nsutils (Options.lang opts) usedTokens
     $+$ literalTokenConditions usedTokens
     $++$ literalTokenRegexDefs usedTokens
     $++$ text "%%"
     $++$ commentBlocks pragmas
     $++$ oneLineComments pragmas
-    $++$ defImplicitTokens opts tkNames
-    $++$ defCustomTokens opts pragmas
-    $++$ defBuiltInTokens opts usedTokens
+    $++$ defImplicitTokens nsutils tkNames
+    $++$ defCustomTokens nsutils pragmas
+    $++$ defBuiltInTokens nsutils usedTokens
     $++$ text ("<INITIAL>[\\t\\n\\f\\r\\x20]+ /* whitespace */ "
       ++ "yyextra->TakeLoc();")
-    $+$ text ("<INITIAL><<EOF>> return " ++ bisonParserName opts
-      ++ "::make_YYEOF(yyextra->TakeLoc());")
+    $+$ text ("<INITIAL><<EOF>> return " ++ packprefix
+      ++ "Parser::make_YYEOF(yyextra->TakeLoc());")
     $++$ text ("[\\x00-\\xff] return LEXER_ERROR(yyextra->TakeLoc());")
     $++$ text "%%"
-    $++$ maybeWrapNamespace (scannerDecl opts $++$ scannerImpl opts)
+    $++$ maybeWrapNamespace (scannerDecl $++$ scannerImpl)
   , compiledLexer_implicitTokenNames = tkNames
   }
   where
     tkNames = nameAllImplicitTokens terminals
-    maybeWrapNamespace = maybe id wrapNamespace (Options.inPackage opts)
+    nsutils@NamespaceUtils
+      { nsutils_wrap   = maybeWrapNamespace
+      , nsutils_prefix = packprefix
+      }
+      = newNamespaceUtilsFromOptions opts
     usedTokens = getBuiltInTokenUsage literals
 
 ------------------------------------------------------------------------
@@ -113,13 +116,10 @@ lookupImplicitTokenName name (NamedImplicitTokens mp) = name `Map.lookup` mp
 -- * Utility.
 ------------------------------------------------------------------------
 
--- | The parser class name, maybe with a namespace.
-bisonParserName ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
-  -> String
-bisonParserName opts = case Options.inPackage opts of
-  Nothing -> "Parser"
-  Just ns -> ns ++ "::Parser"
+-- | Converts colons in a C++ namespace prefix ("abc::def::") into underscores
+-- ("abc__def__").
+flexPrefix :: String -> String
+flexPrefix = map (\ c -> if c == ':' then '_' else c)
 
 -- | Which built-in literal tokens the grammar uses.
 data BuiltInTokenUsage = BuiltInTokenUsage
@@ -185,16 +185,17 @@ isCIdent = \case
 
 -- | Generates FLex options and C++ @include@ directives.
 flexHead ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
-  -> BuiltInTokenUsage      -- ^ Which literals are used in the grammar.
+     NamespaceUtils
+  -> String             -- ^ Language name.
+  -> BuiltInTokenUsage  -- ^ Which literals are used in the grammar.
   -> Doc
-flexHead opts usedTokens = (linesToText $
+flexHead nsutils language usedTokens = (linesToText $
   [ "%option warn nodefault"
   , "%option 8bit reentrant"
   , "%option noyywrap noinput nounput"
-  ] ++ (case Options.inPackage opts of
-    Nothing -> []
-    Just namespace -> ["%option prefix=\"" ++ namespace ++ "\""]) ++
+  ] ++ (case maybePackagePrefix of
+    "" -> []
+    _ -> ["%option prefix=\"" ++ flexPrefix maybePackagePrefix ++ "\""]) ++
   [ "%option outfile=\"" ++ language ++ ".lex.cpp\""
   , ""
   , "%{"
@@ -225,8 +226,8 @@ Parser::symbol_type yylex(yyscan_t yyscanner, Parser* thisparser);
 |])
   $++$ text (concat
       [ "#define YY_DECL "
-      , bisonParserName opts
-      , "::symbol_type "
+      , maybePackagePrefix
+      , "Parser::symbol_type "
       , maybePackagePrefix
       , "yylex(yyscan_t yyscanner, Parser* thisparser)"
       ])
@@ -275,24 +276,24 @@ Parser::symbol_type yylex(yyscan_t yyscanner, Parser* thisparser);
   ]
   where
     useCharconv = grammarUsesInteger usedTokens || grammarUsesDouble usedTokens
-    maybePackagePrefix = case Options.inPackage opts of
-      Nothing -> ""
-      Just s  -> s ++ "::"
-    language = Options.lang opts
-    packwrap = wrapPackage opts
+    NamespaceUtils
+      { nsutils_wrap = packwrap
+      , nsutils_prefix = maybePackagePrefix
+      } = nsutils
 
 -- | Make definitions for tokens specified as literal strings.
 defImplicitTokens ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
+     NamespaceUtils
   -> NamedImplicitTokens    -- ^ The implicit tokens to recognize.
   -> Doc
-defImplicitTokens opts (NamedImplicitTokens mp) = linesToText
+defImplicitTokens NamespaceUtils { nsutils_prefix = packprefix }
+    (NamedImplicitTokens mp) = linesToText
   [concat
     ["<INITIAL>"
     , show (pretty (FlexRegex.flexStringUTF8 str))
     , " return "
-    , bisonParserName opts
-    , "::make_"
+    , packprefix
+    , "Parser::make_"
     , name
     , "(yyextra->TakeLoc());"
     ]
@@ -419,10 +420,11 @@ HEXBYTE [0-9a-fA-F]{1,2}
 
 -- | Generates rules for user-defined tokens.
 defCustomTokens ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
-  -> [CF.Pragma]            -- ^ Grammar pragmas (contain token definitions).
+     NamespaceUtils
+  -> [CF.Pragma]  -- ^ Grammar pragmas (contain token definitions).
   -> Doc
-defCustomTokens opts pragmas = vcatSpaced
+defCustomTokens NamespaceUtils { nsutils_prefix = packprefix } pragmas =
+  vcatSpaced
   [ makeCustomToken (CF.wpThing name) regex
   | CF.TokenReg name _ regex <- pragmas]
   where
@@ -433,21 +435,21 @@ defCustomTokens opts pragmas = vcatSpaced
         regFlex   = FlexRegex.fromSimpleRegex regSimple
         code      = concat
           [ " return "
-          , bisonParserName opts
-          , "::make_CUSTOM_"
+          , packprefix
+          , "Parser::make_CUSTOM_"
           , name
           , "(yytext, yyextra->TakeLoc());"
           ]
 
 -- | Generates parsing rules for used literal tokens.
 defBuiltInTokens ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
+     NamespaceUtils
   -> BuiltInTokenUsage      -- ^ Which literals are used.
   -> Doc
-defBuiltInTokens opts usedTokens = maybeString $++$ maybeChar $++$ maybeInteger
-    $++$ maybeDouble $++$ maybeIdent
+defBuiltInTokens NamespaceUtils { nsutils_prefix = packprefix } usedTokens =
+  maybeString $++$ maybeChar $++$ maybeInteger $++$ maybeDouble $++$ maybeIdent
   where
-    parserName = bisonParserName opts
+    parserName = packprefix ++ "Parser"
     maybeString
       | grammarUsesString usedTokens  = defString parserName
       | otherwise                     = empty
@@ -619,58 +621,46 @@ commentBlocks pragmas = foldr ($++$) empty
       in text "<INITIAL>" <> pretty block <> text " ;"
 
 -- | Generates the scanner class declaration. The @Scanner@ class is the
--- interface to the FLex lexer. Exported so that other modules (currently the
--- Bison grammar) could declare the same class and link with it.
-scannerDecl ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
-  -> Doc
-scannerDecl opts = linesToText
-  [ "// optFilename is not owned by the lexer."
-  , "class " ++ name ++ " {"
-  , "    yyscan_t scanner;"
-  , "    " ++ name ++ "(std::string* optFilename);"
-  , ""
-  , "public:"
-  , "    " ++ name ++ "(FILE* file, std::string* optFilename);"
-  , "    " ++ name ++ "(std::string_view str, std::string* optFilename);"
-  , "    yyscan_t FlexScanner() const;"
-  , "    ~" ++ name ++ "();"
-  , "};"
-  ]
-  where
-    name = fromMaybe "" (Options.inPackage opts) ++ "Scanner"
+-- interface to the FLex lexer. Exported so that the Bison grammar could declare
+-- the same class and link with it.
+scannerDecl :: Doc
+scannerDecl = unlinesToText [s|
+// optFilename is not owned by the lexer.
+class FlexScanner {
+    yyscan_t scanner;
+    FlexScanner(std::string* optFilename);
 
--- | Generates the implementations for Scanner methods (see 'scannerDecl').
-scannerImpl ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
-  -> Doc
-scannerImpl opts = linesToText
-  [ name ++ "::" ++ name ++ "(std::string* optFilename) {"
-  , "    int err = " ++ prefix ++ "lex_init_extra("
-    ++ "new Extra(optFilename), &scanner);"
-  , "    if (err) throw std::system_error(err, std::generic_category(),"
-  , "        \"Cannot create scanner\");"
-  , "}"
-  , ""
-  , name ++ "::" ++ name ++ "(FILE* file, std::string* optFilename)"
-  , "    : " ++ name ++ "(optFilename) {"
-  , "    " ++ prefix ++ "restart(file, scanner);"
-  , "}"
-  , ""
-  , name ++ "::" ++ name ++ "(std::string_view str, std::string* optFilename)"
-  , "    : " ++ name ++ "(optFilename) {"
-  , "    " ++ prefix ++ "_scan_bytes(str.data(), str.size(), scanner);"
-  , "}"
-  , ""
-  , "yyscan_t " ++ name ++ "::FlexScanner() const { return scanner; }"
-  , ""
-  , name ++ "::~" ++ name ++ "() {"
-  , "    delete " ++ prefix ++ "get_extra(scanner);"
-  , "    " ++ prefix ++ "lex_destroy(scanner);"
-  , "}"
-  ]
-  where
-    name = case Options.inPackage opts of
-      Nothing -> "Scanner"
-      Just ns -> ns ++ "Scanner"
-    prefix = fromMaybe "yy" (Options.inPackage opts)
+public:
+    FlexScanner(FILE* file, std::string* optFilename);
+    FlexScanner(std::string_view str, std::string* optFilename);
+    yyscan_t FlexScanner() const;
+    ~FlexScanner();
+};
+|]
+
+-- | Implementations for Scanner methods (see 'scannerDecl').
+scannerImpl :: Doc
+scannerImpl = unlinesToText [s|
+FlexScanner::FlexScanner(std::string* optFilename) {
+    int err = yylex_init_extra(new Extra(optFilename), &scanner);
+    if (err) throw std::system_error(err, std::generic_category(),
+        \"Cannot create scanner\");
+}
+
+FlexScanner::FlexScanner(FILE* file, std::string* optFilename)
+    : FlexScanner(optFilename) {
+    yyrestart(file, scanner);
+}
+
+FlexScanner::FlexScanner(std::string_view str, std::string* optFilename)
+    : FlexScanner(optFilename) {
+    yy_scan_bytes(str.data(), str.size(), scanner);
+}
+
+yyscan_t FlexScanner::FlexScanner() const { return scanner; }
+
+FlexScanner::~FlexScanner() {
+    delete yyget_extra(scanner);
+    yylex_destroy(scanner);
+}
+|]

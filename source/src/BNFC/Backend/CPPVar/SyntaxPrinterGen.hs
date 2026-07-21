@@ -56,7 +56,7 @@ makeSyntaxPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
-    packwrap = wrapPackage opts
+    packwrap = nsutils_wrap $ newNamespaceUtilsFromOptions opts
 
     hpp = makePrinterHeaderFile "SyntaxPrinter" (unlinesToText [s|
 #pragma once

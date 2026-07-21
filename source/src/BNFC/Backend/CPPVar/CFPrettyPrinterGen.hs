@@ -63,7 +63,8 @@ makePrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
-    packwrap = wrapPackage opts
+    NamespaceUtils { nsutils_wrap = packwrap } =
+      newNamespaceUtilsFromOptions opts
 
     hpp = makePrinterHeaderFile prettyPrinterClassName (unlinesToText [s|
 // The default context-free pretty printer does not suit all languages and is

@@ -56,7 +56,7 @@ makeHaskellPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
-    packwrap = wrapPackage opts
+    packwrap = nsutils_prefix $ newNamespaceUtilsFromOptions opts
 
     hpp = makePrinterHeaderFile "HaskellPrinter" (unlinesToText [s|
 #pragma once

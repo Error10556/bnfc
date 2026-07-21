@@ -9,7 +9,7 @@ module BNFC.Backend.CPPVar.FlexRegex
   (
     -- * The regular expression data structure
     FlexRegex(..)
-    
+
     -- * 'FlexRegex' smart constructors
   , flexCharsetUTF8
   , flexConcat
@@ -64,7 +64,7 @@ import BNFC.Backend.CPPVar.CPPUtil (utf8encode)
 
 -- | The FLex-specific regex representation. Does not represent some features
 -- (e.g. character class subtraction) for simplicity.
--- 
+--
 -- The empty language is represented as a v'Byteset' of an empty set.
 data FlexRegex
   = Empty                 -- ^ Matches the empty string.
@@ -246,7 +246,7 @@ bytecharClass bytes
 
 -- | Encodes a set of bytes as a union of ranges in a FLex character class.
 -- Does not enclose the result in brackets.
--- 
+--
 -- E.g.
 --
 -- @bytecharRanges ([ord '1'..ord '9'] ++ [ord \'h\'])@

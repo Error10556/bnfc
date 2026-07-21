@@ -62,7 +62,7 @@ makeClassicPrettyPrinter opts printable listItemStorage = CPPHeaderSourcePair
   , cppSourceText = cpp
   }
   where
-    packwrap = wrapPackage opts
+    packwrap = nsutils_wrap $ newNamespaceUtilsFromOptions opts
 
     hpp = makePrinterHeaderFile prettyPrinterClassName (unlinesToText [s|
 // See ClassicPrettyPrinter.cpp for a description of the printing rules.

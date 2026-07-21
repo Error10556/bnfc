@@ -29,9 +29,7 @@ testFilename = "Test.cpp"
 -- | Generates the example parser code.
 makeTest :: Options.SharedOptions -> Doc
 makeTest opts = let
-    ns = case Options.inPackage opts of
-      Nothing   -> ""
-      Just name -> name ++ "::"
+    ns = nsutils_prefix $ newNamespaceUtilsFromOptions opts
   in unlinesToText [s|
 #include <cstring>
 #include <vector>
