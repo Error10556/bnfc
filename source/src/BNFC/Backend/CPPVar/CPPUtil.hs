@@ -11,13 +11,14 @@ module BNFC.Backend.CPPVar.CPPUtil
     CPPHeaderSourcePair(..)
   , CPPShow(..)
   , cppShowString
+  , NamespaceUtils(..)
+  , newNamespaceUtils
 
     -- * Additional functions on 'Text.PrettyPrint.Doc'
   , ($++$)
   , linesToText
   , unlinesToText
   , wrapNamespace
-  , wrapPackage
   , vcatSpaced
 
     -- * Types & functions to use with grammar rules
@@ -52,7 +53,7 @@ module BNFC.Backend.CPPVar.CPPUtil
 
 -- Language imports
 import Prelude hiding ((<>))
-import Data.List (sort)
+import Data.List (sort, intercalate)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, chr, ord)
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -123,6 +124,44 @@ instance CPPShow Bool where
     | b         = "true"
     | otherwise = "false"
 
+-- | Functions that help refer to the generated namespace.
+data NamespaceUtils = NamespaceUtils
+  { nsutils_name   :: String  -- ^ The normalized namespace name or "".
+  , nsutils_prefix :: String
+    -- ^ The normalized namespace access (ends with ::) or "".
+  , nsutils_wrap   :: Doc -> Doc
+    -- ^ Wraps code in (possibly nested) namespace definition(s).
+  }
+
+-- | Creates a set of namespace functions appropriate for the
+-- 'BNFC.Options.inPackage' option value.
+newNamespaceUtils ::
+     Maybe String  -- ^ An optional namespace ("package") name to generate.
+  -> NamespaceUtils
+newNamespaceUtils maybePackage = NamespaceUtils
+  { nsutils_name = nsname
+  , nsutils_prefix = nspref
+  , nsutils_wrap = case words of
+    [] -> id
+    _  -> \ code ->
+      text (unwords [unwords ["namespace", w, "{"] | w <- words])
+      $++$ code
+      $++$ text (unwords (map (const "}") words) ++ "  // namespace " ++ nsname)
+  }
+  where
+    package = maybe "" id maybePackage
+    words = getWords package
+    nsname = intercalate "::" words
+    nspref
+      | null nsname = nsname
+      | otherwise   = nsname ++ "::"
+    getWords [] = []
+    getWords (cur : tail)
+      | cppIsAlpha_ cur =
+        let (wordTail, others) = span cppIsAlnum tail
+        in (cur : wordTail) : getWords others
+      | otherwise = getWords tail
+
 ------------------------------------------------------------------------
 -- * Additional functions on 'Text.PrettyPrint.Doc'.
 ------------------------------------------------------------------------
@@ -163,14 +202,6 @@ wrapNamespace name doc = foldr1 ($++$)
   , doc
   , text $ "}  // namespace " ++ name
   ]
-
--- | Wraps a code block into a namespace given by 'BNFC.Options.inPackage'.
--- If no package has been specified, does nothing.
-wrapPackage ::
-     Options.SharedOptions  -- ^ BNFC invokation options.
-  -> Doc                    -- ^ Code to maybe wrap.
-  -> Doc
-wrapPackage opts = maybe id wrapNamespace (Options.inPackage opts)
 
 -- | Concatenates multiple blocks vertically inserting an empty line inbetween
 -- each two.
@@ -485,6 +516,15 @@ nonunique lst = case sort lst of
           else help False x tail')
         else help True x tail'
 
+-- | Checks if a character is valid in identifiers at the first position.
+cppIsAlpha_ :: Char -> Bool
+cppIsAlpha_ ch = isAsciiLower ch || isAsciiUpper ch || ch == '_'
+
+-- | Checks if a character is valid in identifiers at a position after the first
+-- chacacter.
+cppIsAlnum :: Char -> Bool
+cppIsAlnum ch  = isAlpha_ ch || isDigit ch
+
 -- | Transforms a string into a valid C identifier.
 --
 --  * Replaces invalid characters with @_@;
@@ -502,5 +542,3 @@ normalizeCPPName =
     then ch
     else '_')
   where
-    isAlpha_ ch = isAsciiLower ch || isAsciiUpper ch || ch == '_'
-    isAlnum ch  = isAlpha_ ch || isDigit ch
