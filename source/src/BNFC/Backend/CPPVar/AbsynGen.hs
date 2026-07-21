@@ -676,10 +676,8 @@ inline auto& LocationOf(T& node) {
             || reflection::IsTokenStruct<PureT>
             || reflection::IsListClass<PureT>)
         return node.loc;
-    else if constexpr (reflection::IsCategoryClass<PureT>)
+    else  // CategoryClass
         return node.Location();
-    else
-        static_assert(false, "Unimplemented LocationOf");
 }
 |]
 
