@@ -72,9 +72,10 @@ makeAbsyn opts literals pragmas isPosToken entrypts mergedGroupedRules
     , absynListItemStorage = listStorage
     }
   where
-    loc            = getLocationKind opts
-    utils          = newAstLocationUtils loc isPosToken
-    maybeNamespace = wrapPackage opts
+    utils@AstUtils
+      { ast_nsutils = NamespaceUtils
+        { nsutils_wrap = maybeNamespace }
+      } = newAstUtils opts isPosToken
     StructWithReflection
       { structWithReflection_struct = hppTokenStructs
       , structWithReflection_reflection = hppTokenRefl
@@ -126,8 +127,9 @@ ctorInitializers = nest 4 . \case
   first : rest -> foldr ($+$) empty
     $ text (": " ++ first) : map (text . (", " ++)) rest
 
--- | A collection of functions and values for location tracking.
-data AstLocationUtils = AstLocationUtils
+-- | A collection of functions and values for location tracking and referencing
+-- the target namespace.
+data AstUtils = AstUtils
   {
     -- | The way we track locations.
     astLoc_locKind :: LocationKind
@@ -166,14 +168,17 @@ data AstLocationUtils = AstLocationUtils
   , astLoc_isPositionalToken ::
          String  -- ^ Token name.
       -> Bool
+
+    -- | Namespace functions.
+  , ast_nsutils :: NamespaceUtils
   }
 
 -- | Initializes AST location utils suitably.
-newAstLocationUtils ::
-     LocationKind
+newAstUtils ::
+     Options.SharedOptions  -- ^ BNFC invokation options.
   -> (String -> Bool)  -- ^ Checks if a token is defined as positional.
-  -> AstLocationUtils
-newAstLocationUtils locKind isPositionalToken = case locKind of
+  -> AstUtils
+newAstUtils opts isPositionalToken = case locKind of
   CppLocationsNone -> initial
     { astLoc_maybePrependParam     = const id
     , astLoc_maybeParam            = const ""
@@ -181,11 +186,14 @@ newAstLocationUtils locKind isPositionalToken = case locKind of
     , astLoc_maybeFieldAsg         = empty
     , astLoc_storageClass          = error "Storage of locations undefined"
     , astLoc_fieldDecl             = empty
+    , ast_nsutils                  = nsutils
     }
   CppLocationsStart -> finalize "position" initial
   CppLocationsRange -> finalize "location" initial
   where
-    initial = AstLocationUtils
+    locKind = getLocationKind opts
+    nsutils = newNamespaceUtils $ Options.inPackage opts
+    initial = AstUtils
       { astLoc_locKind               = locKind
       , astLoc_isPositionalToken     = isPositionalToken
       , astLoc_maybePrependParam     = undefined
@@ -194,6 +202,7 @@ newAstLocationUtils locKind isPositionalToken = case locKind of
       , astLoc_maybeFieldAsg         = undefined
       , astLoc_storageClass          = undefined
       , astLoc_fieldDecl             = undefined
+      , ast_nsutils                  = nsutils
       }
     finalize storage utils = utils
       { astLoc_maybePrependParam     = maybePrependParam
@@ -560,9 +569,9 @@ headerHead langname = linesToText
 
 -- | Declaration of templates in the @reflection@ namespace.
 reflectionTemplates ::
-     AstLocationUtils
+     AstUtils
   -> Doc
-reflectionTemplates AstLocationUtils
+reflectionTemplates AstUtils
   { astLoc_locKind = locKind
   } = unlinesToText [s|
 template<class T> struct IsTokenStruct_t
@@ -706,20 +715,17 @@ unzipStructWithReflection = foldr (\ StructWithReflection
 
 -- | Generates a declaration for a token structure with constructors and
 -- assignment operators taking references to the storage type.
---
--- Does not check if the token is positional, believes the AstLocationUtils.
 tokenStructWithRefConstructorsHeader ::
-     AstLocationUtils  -- ^ For location tracking.
-  -> Bool    -- ^ Supports locations?
-  -> String  -- ^ The token name.
-  -> String  -- ^ The data type (e.g. @std::string@ for a @String@ token).
+     AstUtils  -- ^ For location tracking.
+  -> String    -- ^ The token name.
+  -> String    -- ^ The data type (e.g. @std::string@ for a @String@ token).
   -> StructWithReflection
-tokenStructWithRefConstructorsHeader locUtils hasLocs name storageType
+tokenStructWithRefConstructorsHeader locUtils name storageType
   = StructWithReflection
   { structWithReflection_struct = linesToText
     [ "struct " ++ name ++ " {"
     , "public:"
-    ] $+$ nest 4 (locField $+$ linesToText
+    ] $+$ nest 4 (locField' $+$ linesToText
       [ storageType ++ " " ++ tokenStorageName name ++ ";"
       , name ++ "() = default;"
       , name ++ "(const " ++ name ++ "&) = default;"
@@ -735,18 +741,23 @@ tokenStructWithRefConstructorsHeader locUtils hasLocs name storageType
     text $ "REFL_TOKEN(" ++ name ++ ", " ++ cppShow hasLocs ++ ");"
   }
   where
-    AstLocationUtils
+    AstUtils
       { astLoc_maybeParam        = maybeParam
       , astLoc_fieldDecl         = locField
+      , astLoc_isPositionalToken = isPosToken
       } = locUtils
-    maybeParam' = maybeParam ""
+    hasLocs = isPosToken name
+    maybeParam'
+      | hasLocs   = maybeParam ""
+      | otherwise = ""
+    locField'
+      | hasLocs   = locField
+      | otherwise = empty
 
 -- | Generates an implementation for a token structure with constructors and
 -- assignment operators taking references to the storage type.
---
--- Does not check if the token is positional, believes the AstLocationUtils.
 tokenStructWithRefConstructorsImpl ::
-     AstLocationUtils
+     AstUtils
   -> String  -- ^ The token name.
   -> String  -- ^ The data type (e.g. @std::string@ for a @String@ token).
   -> Doc
@@ -766,12 +777,18 @@ tokenStructWithRefConstructorsImpl locUtils name storageType =
     , "}"
     ]
   where
-    AstLocationUtils
+    AstUtils
       { astLoc_maybeParam            = maybeParam
       , astLoc_maybePrependFieldInit = maybeLocInit
+      , astLoc_isPositionalToken     = isPosToken
       } = locUtils
-    maybeParam' = maybeParam "loc"
-    maybeLocInit' = maybeLocInit
+    hasLoc = isPosToken name
+    maybeParam'
+      | hasLoc    = maybeParam "loc"
+      | otherwise = ""
+    maybeLocInit'
+      | hasLoc    = maybeLocInit
+      | otherwise = id
     constructor valueparam valueinit =
       (text (name ++ "::" ++ name ++ "(" ++ maybeParam' ++ valueparam ++ ")")
       $+$ ctorInitializers (maybeLocInit' [tokenStorageName name ++ valueinit]))
@@ -804,6 +821,8 @@ tokenStructHeader name storageType = StructWithReflection
 
 -- | Generates an implementation for a token structure with a by-value
 -- constructor and assignment operator.
+--
+-- By-value tokens are currently never positional.
 tokenStructImpl ::
      String  -- ^ The token name.
   -> String  -- ^ The data type (e.g. @std::string@ for a @String@ token).
@@ -823,7 +842,7 @@ tokenStructImpl name storageType =
 
 -- | Generates declarations for all tokens.
 headerTokens ::
-     AstLocationUtils
+     AstUtils
   -> [CF.Literal]  -- ^ The built-in tokens.
   -> [CF.Pragma]   -- ^ Contains user-defined tokens.
   -> StructWithReflection
@@ -833,18 +852,14 @@ headerTokens utils lits pragmas = StructWithReflection
   }
   where
     litTokens  = map makeLitToken lits
-    isPosToken = astLoc_isPositionalToken utils
-    noLocUtils = newAstLocationUtils CppLocationsNone isPosToken
     makeHeader = tokenStructWithRefConstructorsHeader
-    -- | Turn off locations for non-positional tokens.
-    makeUserToken tkName
-      | isPosToken tkName = makeHeader utils      True  tkName "std::string"
-      | otherwise         = makeHeader noLocUtils False tkName "std::string"
+    makeUserToken tkName =
+      makeHeader utils tkName "std::string"
     userTokens =
       [ makeUserToken name
       | CF.TokenReg CF.WithPosition { wpThing = name} _ _ <- pragmas
       ]
-    makeStringlikeToken s = makeHeader noLocUtils False s "std::string"
+    makeStringlikeToken s = makeHeader utils s "std::string"
     makeLitToken s
       | s == "Char"    = tokenStructHeader s "int32_t"
       | s == "String"  = makeStringlikeToken s
@@ -856,23 +871,17 @@ headerTokens utils lits pragmas = StructWithReflection
 
 -- | Generates implementations for all tokens.
 implTokens ::
-     AstLocationUtils
+     AstUtils
   -> [CF.Literal]  -- ^ The built-in tokens.
   -> [CF.Pragma]   -- ^ Contains user-defined tokens.
   -> Doc
 implTokens utils lits pragmas = vcatSpaced $ litTokens ++ userTokens
   where
-    isPosToken = astLoc_isPositionalToken utils
-    noLocUtils = newAstLocationUtils CppLocationsNone isPosToken
-    -- | Turn off locations for non-positional tokens.
-    utilsForToken tkName
-      | isPosToken tkName = utils
-      | otherwise         = noLocUtils
     litTokens = map makeLitToken lits
     userTokens =
-      [makeUserToken $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
+      [makeUserToken utils $ CF.wpThing name | CF.TokenReg name _ _ <- pragmas]
     makeStringlikeToken s =
-      tokenStructWithRefConstructorsImpl noLocUtils s "std::string"
+      tokenStructWithRefConstructorsImpl utils s "std::string"
     makeLitToken s
       | s == "Char"    = tokenStructImpl s "int32_t"
       | s == "String"  = makeStringlikeToken s
@@ -881,7 +890,7 @@ implTokens utils lits pragmas = vcatSpaced $ litTokens ++ userTokens
       | s == "Ident"   = makeStringlikeToken s
       | otherwise      = error $ "Unimplemented literal: " ++ s
     makeUserToken s =
-      tokenStructWithRefConstructorsImpl (utilsForToken s) s "std::string"
+      tokenStructWithRefConstructorsImpl s "std::string"
 
 ------------------------------------------------------------------------
 -- * Categories (nonterminals) and rules.
@@ -898,7 +907,7 @@ data AbsynNodeCode = AbsynNodeCode
 -- | Generates declarations, reflection properties, and implementations
 -- for all classes: categories, list categories, and rules.
 defineAllClasses ::
-     AstLocationUtils
+     AstUtils
   -> ListItemStorage     -- ^ How to store list elements.
   -> [ClassDeclaration]  -- ^ Declarations to generate.
   -> AbsynNodeCode
@@ -935,11 +944,11 @@ defineAllClasses utils storeListItemsBy decls = foldr (\ decl code ->
 
 -- | Generates code for a v'ListClassDeclaration'.
 listDef ::
-     AstLocationUtils
+     AstUtils
   -> ListItemStorage  -- ^ How to store the elements.
   -> CF.Cat           -- ^ Type of elements.
   -> AbsynNodeCode
-listDef AstLocationUtils
+listDef AstUtils
   { astLoc_fieldDecl  = locFieldDecl
   , astLoc_maybeParam = locMaybeParam
   , astLoc_locKind    = locKind
@@ -1053,11 +1062,11 @@ listDef AstLocationUtils
 
 -- | Generates code for a v'VariantClassDeclaration'.
 variantDef ::
-     AstLocationUtils
+     AstUtils
   -> String    -- ^ The name of the variant class.
   -> [String]  -- ^ The names of variants (labels).
   -> AbsynNodeCode
-variantDef AstLocationUtils
+variantDef AstUtils
   { astLoc_locKind      = locKind
   , astLoc_storageClass = locStorageClass
   } name variants =
@@ -1130,8 +1139,8 @@ variantDef AstLocationUtils
 
 -- | Generates the declaration, properties, and implementation for a labeled
 -- BNF rule.
-ruleDef :: AstLocationUtils -> CF.Rule -> AbsynNodeCode
-ruleDef AstLocationUtils
+ruleDef :: AstUtils -> CF.Rule -> AbsynNodeCode
+ruleDef AstUtils
   { astLoc_maybePrependParam     = maybePrependLocParam
   , astLoc_maybePrependFieldInit = maybePrependLocInit
   , astLoc_maybeFieldAsg         = maybeLocFieldAsg
@@ -1258,7 +1267,7 @@ ruleDef AstLocationUtils
 
 -- | Generates user function headers.
 declareFunctions ::
-     AstLocationUtils
+     AstUtils
   -> [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
   -> Doc
 declareFunctions utils pragmas =
@@ -1266,7 +1275,7 @@ declareFunctions utils pragmas =
 
 -- | Generates user function implementations.
 translateFunctions ::
-     AstLocationUtils
+     AstUtils
   -> [CF.Pragma]  -- ^ Grammar pragmas (contain definitions).
   -> Doc
 translateFunctions utils pragmas =
@@ -1283,14 +1292,14 @@ entitleUserFunctions = \case
 
 -- | Generates the header declaration for one user-defined function.
 declareFunction ::
-     AstLocationUtils
+     AstUtils
   -> CF.Define  -- ^ The user-defined function.
   -> Doc
 declareFunction utils = (<> text ";") . userFunctionSignature utils
 
 -- | Generates the implementation for one user-defined function.
 translateFunction ::
-     AstLocationUtils
+     AstUtils
   -> CF.Define -- ^ The user-defined function.
   -> Doc
 translateFunction utils def =
@@ -1449,11 +1458,11 @@ userFuncLocationParam = "__bnfc_loc__"
 -- | Generates the signature (return type + name + parameters)
 -- for one user-defined function.
 userFunctionSignature ::
-     AstLocationUtils
+     AstUtils
   -> CF.Define  -- ^ The user-defined function.
   -> Doc
 userFunctionSignature
-  AstLocationUtils
+  AstUtils
     { astLoc_maybePrependParam = maybePrependLocParam
     }
   (CF.Define
