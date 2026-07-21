@@ -168,11 +168,11 @@ makePrinterHeaderFile ::
     -- ^ Top of class declaration (between @class Printer {@ and the methods)
   -> [PrintableSymbol]  -- ^ Printing methods.
   -> Bool               -- ^ Should the @operator()@s be marked as const?
-  -> Doc                -- ^ Comment on @operator<<(string_view)@.
+  -> Doc                -- ^ Right before @operator<<(string_view)@.
   -> (Doc -> Doc)       -- ^ Namespace wrapping function.
   -> Doc
 makePrinterHeaderFile className includes classtop printables constThis
-  shlStringViewComment packwrap =
+  shlBeforeStringView packwrap =
     includes $++$ packwrap inNamespace
   where
     inNamespace =
@@ -196,7 +196,7 @@ makePrinterHeaderFile className includes classtop printables constThis
       ]
     makeShlConst s = makeShlRaw $ "const " ++ s ++ "&"
     shlOperators = foldr (($+$) . makeShlConst)
-      (shlStringViewComment $+$ makeShlRaw "std::string_view")
+      (shlBeforeStringView $+$ makeShlRaw "std::string_view")
       printableNames
     maybeConst
       | constThis = " const"

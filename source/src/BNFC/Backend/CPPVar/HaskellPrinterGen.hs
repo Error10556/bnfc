@@ -20,7 +20,7 @@ module BNFC.Backend.CPPVar.HaskellPrinterGen
 -- Language imports
 import Data.List (intersperse)
 import Data.String.QQ (s)
-import Text.PrettyPrint (($+$), Doc, nest, text, empty)
+import Text.PrettyPrint (($+$), Doc, nest, text)
 
 -- BNFC imports
 import qualified BNFC.CF as CF
@@ -48,13 +48,15 @@ haskellPrinterCppFilename = "HaskellPrinter.cpp"
 
 makeHaskellPrinter ::
      Options.SharedOptions  -- ^ BNFC invokation options.
+  -> (String -> Bool)       -- ^ Checks if a token tracks its position.
   -> [PrintableSymbol]      -- ^ The list of types to make methods for.
   -> ListItemStorage        -- ^ How to access list items.
   -> CPPHeaderSourcePair
-makeHaskellPrinter opts printable listItemStorage = CPPHeaderSourcePair
-  { cppHeaderText = hpp
-  , cppSourceText = cpp
-  }
+makeHaskellPrinter opts isPosToken printable listItemStorage =
+  CPPHeaderSourcePair
+    { cppHeaderText = hpp
+    , cppSourceText = cpp
+    }
   where
     packwrap = nsutils_wrap $ newNamespaceUtilsFromOptions opts
 
@@ -74,19 +76,30 @@ makeHaskellPrinter opts printable listItemStorage = CPPHeaderSourcePair
 
 public:
     explicit HaskellPrinter(std::ostream& out);
+    void operator()(const location&) const;
+    void operator()(const position&) const;
 |])
-      printable True empty packwrap
+      printable True (unlinesToText [s|
+const HaskellPrinter& operator<<(const HaskellPrinter&, const location&);
+const HaskellPrinter& operator<<(const HaskellPrinter&, const position&);
+|]) packwrap
 
     cpp = text "#include \"HaskellPrinter.hpp\""
       $++$ text "#include \"PrinterCommon.hpp\""
-      $++$ packwrap (printerImpl listItemStorage printable)
+      $++$ packwrap
+        (printerImpl
+          (getLocationKind opts /= CppLocationsNone)
+          isPosToken listItemStorage printable)
 
 -- | Generates the implementation.
 printerImpl ::
-     ListItemStorage    -- ^ How to access list elements.
+     Bool               -- ^ Print positions?
+  -> (String -> Bool)   -- ^ Checks if a token tracks its position.
+  -> ListItemStorage    -- ^ How to access list elements.
   -> [PrintableSymbol]  -- ^ All symbols to generate methods for.
   -> Doc
-printerImpl listItemStorage symbols = unlinesToText [s|
+printerImpl printPositions isPosToken listItemStorage symbols =
+  unlinesToText [s|
 HaskellPrinter::HaskellPrinter(std::ostream& out, bool inExpression)
     : out(out)
     , inExpression(inExpression) {}
@@ -97,16 +110,32 @@ HaskellPrinter::HaskellPrinter(std::ostream& out)
 HaskellPrinter HaskellPrinter::PrintConstructorArg() const {
     return {out, true};
 }
+
+void HaskellPrinter::operator()(const location& loc) const {
+    out << "((" << loc.begin.line << ',' << loc.begin.column << "),("
+        << loc.end.line << ',' << loc.end.column << "))";
+}
+
+void HaskellPrinter::operator()(const position& pos) const {
+    out << '(' << pos.line << ',' << pos.column << ')';
+}
 |]
-  $++$ vcatSpaced (map (makeMethod listItemStorage) symbols)
-  $++$ makePrinterShlImplementations "HaskellPrinter" symbols
+  $++$ vcatSpaced
+    (map (makeMethod printPositions isPosToken listItemStorage) symbols)
+  $++$ makePrinterShlImplementations "HaskellPrinter"
+    ( PrintableCustomToken "location"
+    : PrintableCustomToken "position"
+    : symbols
+    )
 
 -- | Generates an implementation of printing a class.
 makeMethod ::
-     ListItemStorage
-  -> PrintableSymbol  -- ^ A class to print.
+     Bool              -- ^ Print positions?
+  -> (String -> Bool)  -- ^ Checks if a token tracks its position.
+  -> ListItemStorage   -- ^ How to access list elements.
+  -> PrintableSymbol   -- ^ A class to print.
   -> Doc
-makeMethod storeListItemsBy = \case
+makeMethod printPositions isPosToken storeListItemsBy = \case
   PrintableNormalCategory name -> methodWrap True name
     $ text "std::visit(*this, v);"
   PrintableList PrintableListDescription { printListName = name } ->
@@ -115,8 +144,6 @@ makeMethod storeListItemsBy = \case
         StoreByValue   -> ""
         StoreByPointer -> "*"
     in
-      -- For some reason, commas are not followed by spaces in list
-      -- representations in system tests.
       methodWrap True name $ linesToText
       [ "out << '[';"
       , "if (!v.empty()) {"
@@ -133,13 +160,13 @@ makeMethod storeListItemsBy = \case
   PrintableFunctionRule rule -> let
       className = CF.funName rule
       fields = fieldNames $ CF.rhsRule rule
-      body = case fields of
-        []     -> text ("out << \"" ++ className ++ "\";")
-        fields -> linesToText
-          [ "if (inExpression) out << '(';"
-          , "out << \"" ++ className ++ " \";"
-          , "const HaskellPrinter printField = PrintConstructorArg();"
-          ]
+      body =
+        if null fields && not printPositions
+        then text ("out << \"" ++ className ++ "\";")
+        else
+          text "if (inExpression) out << '(';"
+          $+$ printValueCtorName printPositions className
+          $+$ text "const HaskellPrinter printField = PrintConstructorArg();"
           $+$ linesToText
             (intersperse "out << ' ';"
             [ concat
@@ -152,19 +179,32 @@ makeMethod storeListItemsBy = \case
             | (fieldname, fieldtype) <- fields])
           $+$ text "if (inExpression) out << ')';"
     in methodWrap (not (null fields)) className body
-  PrintableCustomToken name -> stringlikeMethod name
-  PrintableIdent   -> stringlikeMethod "Ident"
-  PrintableString  -> stringlikeMethod "String"
+  PrintableCustomToken name -> customTokenMethod name
+  PrintableIdent   -> customTokenMethod "Ident"
+  PrintableString  ->
+    methodWrap True "String" $ text ("PrintEscapedString(out, v.Value);")
   PrintableChar    ->
     methodWrap True "Char" $ text ("PrintEscapedChar(out, v.Value);")
   PrintableDouble  ->
     methodWrap True "Double" $ text ("PrintDouble(out, v.Value);")
   PrintableInteger -> methodWrap True "Integer" $ text ("out << v.Value;")
   where
-    stringlikeMethod argStructName =
-      methodWrap True argStructName
-        $ text ("PrintEscapedString(out, v."
-          ++ tokenStorageName argStructName ++ ");")
+    printValueCtorNameNoLoc name = text ("out << \"" ++ name ++ " \";")
+    printValueCtorNameWithLoc name = linesToText
+      [ "out << \"" ++ name ++ " (Just \";"
+      , "(*this)(v.loc);"
+      , "out << \") \";"
+      ]
+    printValueCtorName withLoc
+      | withLoc   = printValueCtorNameWithLoc
+      | otherwise = printValueCtorNameNoLoc
+    customTokenMethod argStructName = methodWrap True argStructName
+      $ text "if (inExpression) out << '(';"
+      $+$ printValueCtorName
+        (printPositions && isPosToken argStructName) argStructName
+      $+$ text ("PrintEscapedString(out, v."
+        ++ tokenStorageName argStructName ++ ");")
+      $+$ text "if (inExpression) out << ')';"
     methodWrap argUsed name body =
       text (concat
         [ "void HaskellPrinter::operator()(const "

@@ -123,7 +123,8 @@ makeCppVar opts cf@CFG
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = haskellHpp
       , cppSourceText = haskellCpp
-      } = HaskellPrinterGen.makeHaskellPrinter opts printables listItemStorage
+      } = HaskellPrinterGen.makeHaskellPrinter
+        opts isPosToken printables listItemStorage
     CPPUtil.CPPHeaderSourcePair
       { cppHeaderText = cprettyHpp
       , cppSourceText = cprettyCpp
