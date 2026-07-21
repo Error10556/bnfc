@@ -814,7 +814,7 @@ tokenStructHeader name storageType = StructWithReflection
       , name ++ "& operator=(" ++ storageType ++ ");"
       ]) $+$ text "};"
   , structWithReflection_reflection =
-    text $ "REFL(" ++ name ++ ", TokenStruct, 0);"
+    text $ "REFL_TOKEN(" ++ name ++ ", false);"
   }
 
 -- | Generates an implementation for a token structure with a by-value
