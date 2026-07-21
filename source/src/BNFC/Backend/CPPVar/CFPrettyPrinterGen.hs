@@ -283,8 +283,11 @@ handleCurlyBraces lst =
 handleTokenSpacing :: [PrintTerm] -> [PrintTerm]
 handleTokenSpacing = \case
   []           -> []
-  first : tail -> first : helper first tail
+  first : tail -> handleNested first : helper first tail
   where
+    handleNested = \case
+      Nest nested -> Nest $ handleTokenSpacing nested
+      notNested   -> notNested
     helper :: PrintTerm -> [PrintTerm] -> [PrintTerm]
     helper = \case
       Str ";" -> (Newline :) . helper Newline
@@ -292,7 +295,7 @@ handleTokenSpacing = \case
         []         -> []
         cur : tail ->
           (if needSep prev cur then (space :) else id)
-          (cur : helper cur tail)
+          (handleNested cur : helper cur tail)
     needSep :: PrintTerm -> PrintTerm -> Bool
     needSep a b = case a of
       Newline -> False
@@ -319,9 +322,12 @@ handleTokenSpacing = \case
 mergeStrs :: [PrintTerm] -> [PrintTerm]
 mergeStrs = map (\case
     Left ss -> Str (concat ss)
-    Right t -> t
+    Right t -> handleNested t
   ) . helper
   where
+    handleNested = \case
+      Nest nested -> Nest $ mergeStrs nested
+      notNested   -> notNested
     helper :: [PrintTerm] -> [Either [String] PrintTerm]
     helper = \case
       []       -> []
