@@ -87,7 +87,7 @@ makeBison opts implicitTokenNames isPosToken CF.CFG
 makeLocationHeader :: Options.SharedOptions -> Doc
 makeLocationHeader opts = linesToText
   [ "#pragma once"
-  , "#include \"" ++ Options.lang opts ++ "\""
+  , "#include \"" ++ Options.lang opts ++ ".loc.hpp\""
   ]
   $+$ globalImports
   where
