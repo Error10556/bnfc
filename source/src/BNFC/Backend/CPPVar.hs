@@ -70,6 +70,8 @@ grammar description file, as given by 'BNFC.Options.lang'):
 +----------------------------+-------------------------------------------+
 | @language.ypp@             | the Bison parser definition               |
 +----------------------------+-------------------------------------------+
+| @Locations.hpp@            | provides location tracking structs        |
++----------------------------+-------------------------------------------+
 | @Makefile@                 | recipes reference __(if @-m@ given)__     |
 +----------------------------+-------------------------------------------+
 | @Test.cpp@                 | an example parser, used for testing       |
@@ -131,6 +133,8 @@ makeCppVar opts cf@CFG
   mkfile AbsynGen.absynCppFilename comment absynCpp
   mkfile (FlexGen.flexFilename opts) comment flexFile
   mkfile (BisonGen.bisonFilename opts) comment bisonFile
+  mkfile BisonGen.locationHeaderFilename comment
+    $ BisonGen.makeLocationHeader opts
   mkfile PatternMatchingGen.patternMatchingFilename comment
     PatternMatchingGen.patternMatchingHpp
   mkfile PrinterCommonGen.printerCommonHppFilename comment

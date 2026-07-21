@@ -113,6 +113,7 @@ BISONFLAGS =
   , "\tContextFreePrettyPrinter.hpp \\"
   , "\tHaskellPrinter.cpp \\"
   , "\tHaskellPrinter.hpp \\"
+  , "\tLocations.hpp \\"
   , "\tPatternMatching.hpp \\"
   , "\tPrinterCommon.cpp \\"
   , "\tPrinterCommon.hpp \\"
@@ -194,8 +195,9 @@ nonPhonyHelp langname = makeHelpTable80
     "Implements the syntax tree, lexing, and parsing.")
   , ("lib" ++ langname ++ "Printer.a",
     "Implements pretty- and syntax-tree-printing.")
-  , (langname ++ ".lex.cpp", "Contains a lexer implementation.")
-  , (langname ++ ".tab.{h,c}pp", "Contain a syntax parser implementation.")
+  , (langname ++ ".lex.cpp", "Contains the lexer implementation.")
+  , ("Parser.hpp",           "Contain the syntax parser interface.")
+  , (langname ++ ".tab.cpp", "Contain the syntax parser implementation.")
   ]
 
 -- | Definition of the @HELPMESSAGE@ variable. Contains the help text.
@@ -267,7 +269,7 @@ rules langname needBnfcTarget = linesToText
   , "MOSTLYCLEAN_FILES := $(OBJECTS) $(ARCHIVES) Test" ++ langname
   , "BAKFILES := $(foreach f,$(BNFC_GENERATED),$(f).bak)"
   , "CLEAN_FILES := " ++ langname ++ ".lex.cpp " ++ langname ++ ".tab.cpp "
-    ++ langname ++ ".tab.hpp $(BAKFILES)"
+    ++ "Parser.hpp $(BAKFILES)"
   , ""
   , "mostlyclean:"
   , "\t$(foreach f,$(wildcard $(MOSTLYCLEAN_FILES)),rm $(f);$(NEWLINE))"
@@ -285,19 +287,18 @@ rules langname needBnfcTarget = linesToText
   , "bison:"
   , "\t$(INVOKE_BISON)"
   , ""
-  , langname ++ ".tab.hpp " ++ langname ++ ".tab.cpp &: " ++ langname ++ ".ypp"
+  , "Parser.hpp " ++ langname ++ ".tab.cpp &: " ++ langname ++ ".ypp"
   , "\t$(INVOKE_BISON)"
   , ""
   , "CXX_COMPILE = $(CXX) $(CXXFLAGS) -c -o $@ $<"
   , "Absyn.o: Absyn.cpp Absyn.hpp"
   , "\t$(CXX_COMPILE)"
   , ""
-  , langname ++ ".tab.o: " ++ langname ++ ".tab.cpp "
-    ++ langname ++ ".tab.hpp \\"
+  , langname ++ ".tab.o: " ++ langname ++ ".tab.cpp Parser.hpp \\"
   , "\tAbsyn.hpp PatternMatching.hpp"
   , "\t$(CXX) $(CXXFLAGS_BISON) -c -o $@ $<"
   , ""
-  , langname ++ ".lex.o: " ++ langname ++ ".lex.cpp " ++ langname ++ ".tab.hpp"
+  , langname ++ ".lex.o: " ++ langname ++ ".lex.cpp Parser.hpp"
   , "\t$(CXX_COMPILE)"
   , ""
   , "PrinterCommon.o: PrinterCommon.cpp PrinterCommon.hpp"
@@ -327,7 +328,7 @@ rules langname needBnfcTarget = linesToText
   , "lib" ++ langname ++ "Printer.a: $(LIBPRINTER_DEPS)"
   , "\t$(AR_COMPILE)"
   , ""
-  , "Test.o: Test.cpp Absyn.hpp " ++ langname ++ ".tab.hpp "
+  , "Test.o: Test.cpp Absyn.hpp Parser.hpp "
     ++ "PatternMatching.hpp $(TEST_PRINTER_HEADERS)"
   , "\t$(CXX) $(CXXFLAGS) $(TEST_DFLAGS) -c -o $@ $<"
   , ""

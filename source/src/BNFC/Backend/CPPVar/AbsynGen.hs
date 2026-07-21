@@ -96,7 +96,7 @@ makeAbsyn opts literals pragmas isPosToken entrypts mergedGroupedRules
       ]
     hppRefl = reflectionTemplates utils $++$ hppTokenRefl $++$ hppClassRefl
       $++$ entrypointRefl $++$ reflectionUndefs
-    hpp = headerHead (Options.lang opts) $++$ maybeNamespace
+    hpp = headerHead $++$ maybeNamespace
       (hppMain $++$ wrapNamespace "reflection" hppRefl $++$ funcLocationOf)
     cpp = text ("#include \"" ++ absynHppFilename ++ "\"")
       $++$ maybeNamespace
@@ -555,17 +555,15 @@ topsortClassDeclarations listNeedsCompleteItems (TopsortPreparedData
 ------------------------------------------------------------------------
 
 -- | @include@ directives at the top.
-headerHead ::
-     String  -- ^ The language name.
-  -> Doc
-headerHead langname = linesToText
-  [ "#pragma once"
-  , "#include <memory>"
-  , "#include <string>"
-  , "#include <deque>"
-  , "#include <variant>"
-  , "#include \"" ++ langname ++ ".loc.hpp\""
-  ]
+headerHead :: Doc
+headerHead = unlinesToText [s|
+#pragma once
+#include <memory>
+#include <string>
+#include <deque>
+#include <variant>
+#include "Locations.hpp"
+|]
 
 -- | Declaration of templates in the @reflection@ namespace.
 reflectionTemplates ::

@@ -8,11 +8,13 @@
 
 module BNFC.Backend.CPPVar.BisonGen
   (
-    -- * The entrypoint
+    -- * The entrypoints
     makeBison
+  , makeLocationHeader
 
     -- * File naming
   , bisonFilename
+  , locationHeaderFilename
   ) where
 
 -- Language imports
@@ -39,6 +41,9 @@ bisonFilename ::
      Options.SharedOptions  -- ^ BNFC invokation options.
   -> String
 bisonFilename opts = Options.lang opts ++ ".ypp"
+
+locationHeaderFilename :: String
+locationHeaderFilename = "Locations.hpp"
 
 -- | Generates the Bison grammar file.
 makeBison ::
@@ -77,6 +82,27 @@ makeBison opts implicitTokenNames isPosToken CF.CFG
   where
     utils = newBisonUtils opts isPosToken
     reversible = Set.fromList reversibleCatList
+
+-- | Contents of the locations header file.
+makeLocationHeader :: Options.SharedOptions -> Doc
+makeLocationHeader opts = linesToText
+  [ "#pragma once"
+  , "#include \"" ++ Options.lang opts ++ "\""
+  ]
+  $+$ globalImports
+  where
+    NamespaceUtils
+      { nsutils_name = packname
+      } = newNamespaceUtilsFromOptions opts
+    globalImports
+      | null packname = unlinesToText [s|
+using yy::location;
+using yy::position;
+|]
+      | otherwise = unlinesToText [s|
+// Yes, this file simply includes another file.
+// It does other things if BNFC is invoked without -p.
+|]
 
 ------------------------------------------------------------------------
 -- * General utility.
@@ -247,7 +273,7 @@ bisonHeader utils@BisonUtils { bison_nsutils = nsutils } langname =
     , "%param {Parser* thisparser}"
     , "%parse-param {std::variant<ParseResultVariant, "
       ++ "syntax_error>* result}"
-    , "%header \"" ++ langname ++ ".tab.hpp\""
+    , "%header \"Parser.hpp\""
     ]
 
 -- | Generates the token definitions.
@@ -359,11 +385,8 @@ std::variant<T, Parser::syntax_error> ParseAs(std::string_view str,
     -- to import the classes explicitly.
     maybeImportClasses
       | bison_inPackage utils = empty
-      | otherwise             = linesToText
-        [ "using yy::Parser;"
-        , "using yy::location;"
-        , "using yy::position;"
-        ]
+      | otherwise             = text "using yy::Parser;"
+      -- location classes are imported in Locations.hpp, included in Absyn.hpp
 
 -- | Generates a bit of code that makes the lexer available.
 codeLex :: BisonUtils -> Doc
