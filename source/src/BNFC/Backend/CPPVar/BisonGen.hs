@@ -150,8 +150,8 @@ newBisonUtils opts isPosToken = case locKind of
     , bisonLoc_tokenConstructorArgs = const (( : []) . stdMoveFrom)
     }
   CppLocationsStart -> initial
-    { bisonLoc_maybePrependConstructorArg = ("@$.start" : )
-    , bisonLoc_maybeSet = "$$.loc = @$.start; "
+    { bisonLoc_maybePrependConstructorArg = ("@$.begin" : )
+    , bisonLoc_maybeSet = "$$.loc = @$.begin; "
     , bisonLoc_makeConstructorArg = \case
         CF.TokenCat name -> \ i -> concat
           [ name
@@ -189,7 +189,7 @@ newBisonUtils opts isPosToken = case locKind of
     locKind = getLocationKind opts
     tokenCtorArgs isStart name i =
       (if isPosToken name
-        then (concat ["@", show i, if isStart then ".start" else ""] : )
+        then (concat ["@", show i, if isStart then ".begin" else ""] : )
         else id)
       [stdMoveFrom i]
     stdMoveFrom :: Int -> String
@@ -633,7 +633,7 @@ static ParseResultOrError Parse(const FlexScanner& scanner,
                                 std::string* optFilename) {
     ParseResultOrError res(std::in_place_type_t<Parser::syntax_error>(),
         location(position(optFilename, 1, 1), position(optFilename, 1, 1)),
-        "Unknown parser error")
+        "Unknown parser error");
     Parser parser(scanner.Get(), &parser, &res);
     parser.parse();
     return res;
