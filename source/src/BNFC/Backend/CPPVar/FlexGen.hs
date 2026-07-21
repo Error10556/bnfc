@@ -204,7 +204,7 @@ flexHead nsutils language usedTokens = (linesToText $
   [ "#include <string>"
   , "#include <string_view>"
   , "#include <system_error>"
-  , "#include \"" ++ language ++ ".tab.hpp\""
+  , "#include \"Parser.hpp\""
   ])
   $++$ packwrap (unlinesToText [s|
 struct Extra {
@@ -633,7 +633,7 @@ class FlexScanner {
 public:
     FlexScanner(FILE* file, std::string* optFilename);
     FlexScanner(std::string_view str, std::string* optFilename);
-    yyscan_t FlexScanner() const;
+    yyscan_t Get() const;
     ~FlexScanner();
 };
 |]
@@ -644,7 +644,7 @@ scannerImpl = unlinesToText [s|
 FlexScanner::FlexScanner(std::string* optFilename) {
     int err = yylex_init_extra(new Extra(optFilename), &scanner);
     if (err) throw std::system_error(err, std::generic_category(),
-        \"Cannot create scanner\");
+        "Cannot create scanner");
 }
 
 FlexScanner::FlexScanner(FILE* file, std::string* optFilename)
@@ -657,7 +657,7 @@ FlexScanner::FlexScanner(std::string_view str, std::string* optFilename)
     yy_scan_bytes(str.data(), str.size(), scanner);
 }
 
-yyscan_t FlexScanner::FlexScanner() const { return scanner; }
+yyscan_t FlexScanner::Get() const { return scanner; }
 
 FlexScanner::~FlexScanner() {
     delete yyget_extra(scanner);

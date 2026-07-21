@@ -634,7 +634,7 @@ static ParseResultOrError Parse(const FlexScanner& scanner,
     ParseResultOrError res(std::in_place_type_t<Parser::syntax_error>(),
         location(position(optFilename, 1, 1), position(optFilename, 1, 1)),
         "Unknown parser error")
-    Parser parser(scanner.FlexScanner(), &parser, &res);
+    Parser parser(scanner.Get(), &parser, &res);
     parser.parse();
     return res;
 }
